@@ -1,33 +1,48 @@
 "use client";
 
 import {
-  FormEvent,
   useEffect,
   useMemo,
   useState,
+  type FormEvent,
+  type ReactNode,
 } from "react";
 
 import {
   AlertCircle,
-  Check,
+  ArrowLeft,
+  Award,
+  BarChart3,
+  BookOpen,
+  BriefcaseBusiness,
+  CalendarDays,
   CheckCircle2,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
   ClipboardList,
+  Clock3,
   ExternalLink,
+  FileCheck2,
   FileText,
+  Filter,
+  LayoutDashboard,
+  Link2,
   Loader2,
   LogOut,
   Menu,
+  MessageSquareText,
   RefreshCcw,
+  Search,
   Send,
+  Target,
+  UserRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import type {
   StudentCredentials,
   StudentPortalData,
-  StudentTask,
 } from "@/lib/portal-types";
 
 /* =========================================================
@@ -42,20 +57,42 @@ type SessionData = {
 type ApiResponse = {
   success?: boolean;
   message?: string;
-
   data?: StudentPortalData;
-
   student?: StudentPortalData["student"];
   tasks?: StudentPortalData["tasks"];
   summary?: StudentPortalData["summary"];
 };
 
-type TaskFilter =
+type NavItem = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+};
+
+type PortalTask =
+  StudentPortalData["tasks"][number] & {
+    score?: number | null;
+    reviewerComment?: string | null;
+    submissionUrl?: string | null;
+    submissionSummary?: string | null;
+    studentRemarks?: string | null;
+    submittedAt?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  };
+
+type FilterStatus =
   | "all"
   | "pending"
   | "submitted"
-  | "approved"
-  | "revision";
+  | "revision"
+  | "approved";
+
+type SubmitForm = {
+  submissionUrl: string;
+  submissionSummary: string;
+  studentRemarks: string;
+};
 
 /* =========================================================
    CONSTANTS
@@ -63,6 +100,60 @@ type TaskFilter =
 
 const SESSION_KEY =
   "krve-live-project-student-session";
+
+const navigation: NavItem[] = [
+  {
+    label: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    label: "My Project",
+    href: "/project",
+    icon: BookOpen,
+  },
+  {
+    label: "Weekly Tasks",
+    href: "/tasks",
+    icon: ClipboardList,
+  },
+  {
+    label: "My Submissions",
+    href: "/submissions",
+    icon: FileCheck2,
+  },
+  {
+    label: "Feedback",
+    href: "/feedback",
+    icon: MessageSquareText,
+  },
+  {
+    label: "Performance",
+    href: "/performance",
+    icon: BarChart3,
+  },
+  {
+    label: "Sales & Impact",
+    href: "/sales",
+    icon: BriefcaseBusiness,
+  },
+  {
+    label: "Certificate",
+    href: "/certificate",
+    icon: Award,
+  },
+  {
+    label: "Profile",
+    href: "/profile",
+    icon: UserRound,
+  },
+];
+
+const emptySubmitForm: SubmitForm = {
+  submissionUrl: "",
+  submissionSummary: "",
+  studentRemarks: "",
+};
 
 /* =========================================================
    HELPERS
@@ -88,6 +179,33 @@ function extractPortalData(
   }
 
   return null;
+}
+
+function normalizeStatus(
+  value?: string | null,
+) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function statusLabel(
+  value?: string | null,
+) {
+  const normalized =
+    String(value || "")
+      .replace(/_/g, " ")
+      .trim();
+
+  if (!normalized) {
+    return "Pending";
+  }
+
+  return normalized.replace(
+    /\b\w/g,
+    (letter) =>
+      letter.toUpperCase(),
+  );
 }
 
 function formatDate(
@@ -118,76 +236,72 @@ function formatDate(
   ).format(date);
 }
 
-function statusLabel(
+function formatDateTime(
   value?: string | null,
 ) {
-  const normalized =
-    String(value || "")
-      .replace(/_/g, " ")
-      .trim();
-
-  if (!normalized) {
-    return "Pending";
+  if (!value) {
+    return "Not submitted";
   }
 
-  return normalized.replace(
-    /\b\w/g,
-    (letter) =>
-      letter.toUpperCase(),
-  );
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+  ).format(date);
 }
 
 function getStatusClass(
   value?: string | null,
 ) {
   const status =
-    String(value || "")
-      .trim()
-      .toLowerCase();
+    normalizeStatus(value);
 
-  if (
-    [
-      "approved",
-      "completed",
-      "active",
-    ].includes(status)
-  ) {
-    return "success";
+  if (status === "approved") {
+    return "approved";
   }
 
   if (
-    [
-      "submitted",
-      "under_review",
-    ].includes(status)
+    status === "submitted" ||
+    status === "under_review"
   ) {
-    return "review";
+    return "submitted";
   }
 
   if (
     status ===
     "revision_requested"
   ) {
-    return "warning";
+    return "revision";
   }
 
-  if (
-    status ===
-    "rejected"
-  ) {
-    return "danger";
+  if (status === "rejected") {
+    return "rejected";
   }
 
-  return "neutral";
+  return "pending";
 }
 
 function getPriorityClass(
   value?: string | null,
 ) {
   const priority =
-    String(value || "")
-      .trim()
-      .toLowerCase();
+    normalizeStatus(value);
 
   if (priority === "high") {
     return "high";
@@ -200,18 +314,24 @@ function getPriorityClass(
   return "medium";
 }
 
-function getDueText(
-  task: StudentTask,
+function dueInfo(
+  task: PortalTask,
 ) {
   if (
-    task.status ===
+    normalizeStatus(task.status) ===
     "approved"
   ) {
-    return "Completed";
+    return {
+      label: "Completed",
+      className: "complete",
+    };
   }
 
   if (!task.dueDate) {
-    return "No deadline";
+    return {
+      label: "No deadline",
+      className: "neutral",
+    };
   }
 
   const due =
@@ -222,8 +342,18 @@ function getDueText(
       due.getTime(),
     )
   ) {
-    return "";
+    return {
+      label: task.dueDate,
+      className: "neutral",
+    };
   }
+
+  due.setHours(
+    23,
+    59,
+    59,
+    999,
+  );
 
   const now =
     new Date();
@@ -236,24 +366,80 @@ function getDueText(
     );
 
   if (days < 0) {
-    return `${Math.abs(
-      days,
-    )} day${
-      Math.abs(days) === 1
-        ? ""
-        : "s"
-    } overdue`;
+    const count =
+      Math.abs(days);
+
+    return {
+      label: `${count} day${
+        count === 1 ? "" : "s"
+      } overdue`,
+      className: "overdue",
+    };
   }
 
   if (days === 0) {
-    return "Due today";
+    return {
+      label: "Due today",
+      className: "urgent",
+    };
   }
 
-  return `${days} day${
-    days === 1
-      ? ""
-      : "s"
-  } left`;
+  if (days <= 2) {
+    return {
+      label: `${days} day${
+        days === 1 ? "" : "s"
+      } left`,
+      className: "urgent",
+    };
+  }
+
+  return {
+    label: `${days} days left`,
+    className: "normal",
+  };
+}
+
+function filterBucket(
+  task: PortalTask,
+): Exclude<FilterStatus, "all"> {
+  const status =
+    normalizeStatus(task.status);
+
+  if (status === "approved") {
+    return "approved";
+  }
+
+  if (
+    status ===
+    "revision_requested"
+  ) {
+    return "revision";
+  }
+
+  if (
+    status === "submitted" ||
+    status === "under_review"
+  ) {
+    return "submitted";
+  }
+
+  return "pending";
+}
+
+function isValidHttpUrl(
+  value: string,
+) {
+  try {
+    const url =
+      new URL(value);
+
+    return (
+      url.protocol === "http:" ||
+      url.protocol === "https:"
+    );
+  } catch {
+    return false;
+  }
 }
 
 /* =========================================================
@@ -282,42 +468,8 @@ export default function TasksPage() {
     useState(false);
 
   const [
-    filter,
-    setFilter,
-  ] =
-    useState<TaskFilter>(
-      "all",
-    );
-
-  const [
-    selectedTask,
-    setSelectedTask,
-  ] =
-    useState<StudentTask | null>(
-      null,
-    );
-
-  const [
-    submissionUrl,
-    setSubmissionUrl,
-  ] =
-    useState("");
-
-  const [
-    submissionSummary,
-    setSubmissionSummary,
-  ] =
-    useState("");
-
-  const [
-    studentRemarks,
-    setStudentRemarks,
-  ] =
-    useState("");
-
-  const [
-    submitting,
-    setSubmitting,
+    mobileMenuOpen,
+    setMobileMenuOpen,
   ] =
     useState(false);
 
@@ -334,13 +486,57 @@ export default function TasksPage() {
     useState("");
 
   const [
-    mobileMenuOpen,
-    setMobileMenuOpen,
+    search,
+    setSearch,
+  ] =
+    useState("");
+
+  const [
+    filter,
+    setFilter,
+  ] =
+    useState<FilterStatus>(
+      "all",
+    );
+
+  const [
+    expandedTaskId,
+    setExpandedTaskId,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const [
+    submitTask,
+    setSubmitTask,
+  ] =
+    useState<PortalTask | null>(
+      null,
+    );
+
+  const [
+    submitForm,
+    setSubmitForm,
+  ] =
+    useState<SubmitForm>(
+      emptySubmitForm,
+    );
+
+  const [
+    submitting,
+    setSubmitting,
   ] =
     useState(false);
 
+  const [
+    submitError,
+    setSubmitError,
+  ] =
+    useState("");
+
   /* =======================================================
-     RESTORE SESSION
+     SESSION LOAD
   ======================================================= */
 
   useEffect(() => {
@@ -382,7 +578,7 @@ export default function TasksPage() {
         parsed,
       );
 
-      refreshPortal(
+      void refreshPortal(
         parsed.credentials,
         false,
       );
@@ -402,7 +598,7 @@ export default function TasksPage() {
   }, []);
 
   /* =======================================================
-     REFRESH PORTAL
+     REFRESH
   ======================================================= */
 
   async function refreshPortal(
@@ -432,8 +628,7 @@ export default function TasksPage() {
 
             body:
               JSON.stringify({
-                action:
-                  "login",
+                action: "login",
 
                 applicationNumber:
                   credentials.applicationNumber,
@@ -489,8 +684,7 @@ export default function TasksPage() {
       );
     } catch (refreshError) {
       setError(
-        refreshError instanceof
-          Error
+        refreshError instanceof Error
           ? refreshError.message
           : "Unable to refresh tasks.",
       );
@@ -502,50 +696,43 @@ export default function TasksPage() {
   }
 
   /* =======================================================
-     LOGOUT
-  ======================================================= */
-
-  function logout() {
-    window.localStorage.removeItem(
-      SESSION_KEY,
-    );
-
-    window.location.href =
-      "/";
-  }
-
-  /* =======================================================
      OPEN SUBMISSION
   ======================================================= */
 
   function openSubmission(
-    task: StudentTask,
+    task: PortalTask,
   ) {
-    setSelectedTask(
-      task,
-    );
+    setSubmitTask(task);
 
-    setSubmissionUrl(
-      task.submissionUrl ||
-        "",
-    );
+    setSubmitForm({
+      submissionUrl:
+        task.submissionUrl || "",
 
-    setSubmissionSummary(
-      task.submissionSummary ||
-        "",
-    );
+      submissionSummary:
+        task.submissionSummary || "",
 
-    setStudentRemarks(
-      task.studentRemarks ||
-        "",
-    );
+      studentRemarks:
+        task.studentRemarks || "",
+    });
 
-    setError("");
+    setSubmitError("");
     setSuccess("");
   }
 
+  function closeSubmission() {
+    if (submitting) {
+      return;
+    }
+
+    setSubmitTask(null);
+    setSubmitForm(
+      emptySubmitForm,
+    );
+    setSubmitError("");
+  }
+
   /* =======================================================
-     SUBMIT TASK
+     SUBMIT WORK
   ======================================================= */
 
   async function handleSubmit(
@@ -555,17 +742,43 @@ export default function TasksPage() {
     event.preventDefault();
 
     if (
-      !selectedTask ||
-      !session
+      !session ||
+      !submitTask
     ) {
       return;
     }
 
-    setSubmitting(
-      true,
-    );
+    const submissionUrl =
+      submitForm.submissionUrl.trim();
 
-    setError("");
+    const submissionSummary =
+      submitForm.submissionSummary.trim();
+
+    const studentRemarks =
+      submitForm.studentRemarks.trim();
+
+    if (!submissionUrl) {
+      setSubmitError(
+        "Please add your submission link.",
+      );
+
+      return;
+    }
+
+    if (
+      !isValidHttpUrl(
+        submissionUrl,
+      )
+    ) {
+      setSubmitError(
+        "Please enter a valid http or https submission link.",
+      );
+
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError("");
     setSuccess("");
 
     try {
@@ -582,20 +795,22 @@ export default function TasksPage() {
 
             body:
               JSON.stringify({
-                action:
-                  "submit",
+                action: "submit",
 
                 applicationNumber:
-                  session.credentials.applicationNumber,
+                  session.credentials
+                    .applicationNumber,
 
                 email:
-                  session.credentials.email,
+                  session.credentials
+                    .email,
 
                 phone:
-                  session.credentials.phone,
+                  session.credentials
+                    .phone,
 
                 taskId:
-                  selectedTask.id,
+                  submitTask.id,
 
                 submissionUrl,
 
@@ -610,40 +825,39 @@ export default function TasksPage() {
         );
 
       const data =
-        (await response.json()) as ApiResponse;
+        (await response.json()) as {
+          success?: boolean;
+          message?: string;
+        };
 
       if (!response.ok) {
         throw new Error(
           data.message ||
-            "Unable to submit task.",
+            "Unable to submit your work.",
         );
       }
-
-      setSuccess(
-        "Your work has been submitted successfully and is now waiting for evaluation.",
-      );
 
       await refreshPortal(
         session.credentials,
         false,
       );
 
-      window.setTimeout(
-        () => {
-          setSelectedTask(
-            null,
-          );
-
-          setSuccess("");
-        },
-        1500,
+      setSuccess(
+        submitTask.submissionUrl
+          ? "Submission updated successfully. Your evaluator can now review the latest version."
+          : "Work submitted successfully. It is now available to the KEOS evaluator.",
       );
-    } catch (submitError) {
-      setError(
-        submitError instanceof
-          Error
-          ? submitError.message
-          : "Unable to submit work.",
+
+      setSubmitTask(null);
+
+      setSubmitForm(
+        emptySubmitForm,
+      );
+    } catch (submissionError) {
+      setSubmitError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to submit your work.",
       );
     } finally {
       setSubmitting(
@@ -653,82 +867,125 @@ export default function TasksPage() {
   }
 
   /* =======================================================
-     FILTERED TASKS
+     LOGOUT
   ======================================================= */
 
-  const filteredTasks =
+  function logout() {
+    window.localStorage.removeItem(
+      SESSION_KEY,
+    );
+
+    window.location.replace(
+      "/",
+    );
+  }
+
+  /* =======================================================
+     DERIVED DATA
+  ======================================================= */
+
+  const portal =
+    session?.portal;
+
+  const tasks =
     useMemo(() => {
-      if (!session) {
+      if (!portal) {
         return [];
       }
 
-      const tasks =
-        session.portal.tasks;
-
-      if (filter === "all") {
-        return tasks;
-      }
-
-      if (
-        filter ===
-        "pending"
-      ) {
-        return tasks.filter(
-          (task) =>
-            ![
-              "submitted",
-              "under_review",
-              "approved",
-              "revision_requested",
-            ].includes(
-              String(
-                task.status,
-              ).toLowerCase(),
+      return (
+        portal.tasks as PortalTask[]
+      )
+        .slice()
+        .sort(
+          (a, b) =>
+            Number(
+              a.weekNumber || 0,
+            ) -
+            Number(
+              b.weekNumber || 0,
             ),
         );
-      }
+    }, [portal]);
 
-      if (
-        filter ===
-        "submitted"
-      ) {
-        return tasks.filter(
-          (task) =>
-            [
-              "submitted",
-              "under_review",
-            ].includes(
-              String(
-                task.status,
-              ).toLowerCase(),
-            ),
-        );
-      }
-
-      if (
-        filter ===
-        "approved"
-      ) {
-        return tasks.filter(
-          (task) =>
-            String(
-              task.status,
-            ).toLowerCase() ===
-            "approved",
-        );
-      }
+  const filteredTasks =
+    useMemo(() => {
+      const query =
+        search
+          .trim()
+          .toLowerCase();
 
       return tasks.filter(
-        (task) =>
-          String(
-            task.status,
-          ).toLowerCase() ===
-          "revision_requested",
+        (task) => {
+          const bucket =
+            filterBucket(task);
+
+          const matchesFilter =
+            filter === "all" ||
+            bucket === filter;
+
+          const matchesSearch =
+            !query ||
+            String(
+              task.title || "",
+            )
+              .toLowerCase()
+              .includes(query) ||
+            String(
+              task.description || "",
+            )
+              .toLowerCase()
+              .includes(query) ||
+            String(
+              task.weekNumber || "",
+            ).includes(query);
+
+          return (
+            matchesFilter &&
+            matchesSearch
+          );
+        },
       );
     }, [
-      session,
+      tasks,
       filter,
+      search,
     ]);
+
+  const counts =
+    useMemo(() => {
+      return {
+        all: tasks.length,
+
+        pending:
+          tasks.filter(
+            (task) =>
+              filterBucket(task) ===
+              "pending",
+          ).length,
+
+        submitted:
+          tasks.filter(
+            (task) =>
+              filterBucket(task) ===
+              "submitted",
+          ).length,
+
+        revision:
+          tasks.filter(
+            (task) =>
+              filterBucket(task) ===
+              "revision",
+          ).length,
+
+        approved:
+          tasks.filter(
+            (task) =>
+              filterBucket(task) ===
+              "approved",
+          ).length,
+      };
+    }, [tasks]);
 
   /* =======================================================
      LOADING
@@ -736,10 +993,15 @@ export default function TasksPage() {
 
   if (
     loading ||
-    !session
+    !session ||
+    !portal
   ) {
     return (
       <main className="tasks-loading">
+        <div className="loading-logo">
+          KRVÉ
+        </div>
+
         <Loader2
           size={29}
           className="spin"
@@ -747,16 +1009,17 @@ export default function TasksPage() {
 
         <span>
           Loading weekly
-          tasks...
+          assignments...
         </span>
 
         <style jsx global>{`
           html,
           body {
             margin: 0;
-            background: #f5f7fb;
+            background: #f4f7fb;
             font-family:
               Arial,
+              Helvetica,
               sans-serif;
           }
 
@@ -770,8 +1033,14 @@ export default function TasksPage() {
             color: #31578f;
           }
 
-          .tasks-loading
-            span {
+          .loading-logo {
+            color: #0b2c71;
+            font-size: 23px;
+            font-weight: 900;
+            letter-spacing: 0.16em;
+          }
+
+          .tasks-loading span {
             color: #8793a4;
             font-size: 11px;
           }
@@ -795,21 +1064,29 @@ export default function TasksPage() {
 
   const {
     student,
-    summary,
-  } = session.portal;
+  } = portal;
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
+  const projectActive =
+    normalizeStatus(
+      student.status,
+    ) === "active";
 
   return (
     <main className="tasks-page">
-      {/* MOBILE HEADER */}
+      {/* ===================================================
+          MOBILE HEADER
+      =================================================== */}
 
-      <header className="tasks-mobile-header">
-        <strong>
-          KRVÉ
-        </strong>
+      <header className="mobile-header">
+        <div>
+          <strong>
+            KRVÉ
+          </strong>
+
+          <span>
+            LIVE PROJECT PORTAL
+          </span>
+        </div>
 
         <button
           type="button"
@@ -818,22 +1095,25 @@ export default function TasksPage() {
               true,
             )
           }
+          aria-label="Open menu"
         >
           <Menu size={21} />
         </button>
       </header>
 
-      {/* SIDEBAR */}
+      {/* ===================================================
+          SIDEBAR
+      =================================================== */}
 
       <aside
-        className={`tasks-sidebar ${
+        className={`sidebar ${
           mobileMenuOpen
             ? "open"
             : ""
         }`}
       >
-        <div className="tasks-sidebar-brand">
-          <div className="tasks-logo">
+        <div className="sidebar-brand">
+          <div className="brand-logo">
             K
           </div>
 
@@ -843,26 +1123,29 @@ export default function TasksPage() {
             </strong>
 
             <span>
-              LIVE PROJECT
-              PORTAL
+              LIVE PROJECT PORTAL
             </span>
           </div>
 
           <button
             type="button"
-            className="tasks-mobile-close"
+            className="mobile-close"
             onClick={() =>
               setMobileMenuOpen(
                 false,
               )
             }
+            aria-label="Close menu"
           >
             <X size={19} />
           </button>
         </div>
 
-        <div className="tasks-student-mini">
-          <div className="tasks-avatar">
+        <a
+          href="/profile"
+          className="student-mini"
+        >
+          <div className="avatar">
             {student.fullName
               .charAt(0)
               .toUpperCase()}
@@ -878,55 +1161,63 @@ export default function TasksPage() {
                 "Live Project Student"}
             </span>
           </div>
+        </a>
+
+        <div className="nav-heading">
+          WORKSPACE
         </div>
 
         <nav>
-          <a href="/dashboard">
-            Dashboard
-          </a>
+          {navigation.map(
+            (item) => {
+              const Icon =
+                item.icon;
 
-          <a href="/project">
-            My Project
-          </a>
+              return (
+                <a
+                  key={
+                    item.href
+                  }
+                  href={
+                    item.href
+                  }
+                  className={
+                    item.href ===
+                    "/tasks"
+                      ? "active"
+                      : ""
+                  }
+                  onClick={() =>
+                    setMobileMenuOpen(
+                      false,
+                    )
+                  }
+                >
+                  <Icon
+                    size={17}
+                  />
 
-          <a
-            href="/tasks"
-            className="active"
-          >
-            Weekly Tasks
-          </a>
-
-          <a href="/submissions">
-            My Submissions
-          </a>
-
-          <a href="/feedback">
-            Feedback
-          </a>
-
-          <a href="/performance">
-            Performance
-          </a>
-
-          <a href="/sales">
-            Sales & Impact
-          </a>
-
-          <a href="/certificate">
-            Certificate
-          </a>
-
-          <a href="/profile">
-            Profile
-          </a>
+                  <span>
+                    {
+                      item.label
+                    }
+                  </span>
+                </a>
+              );
+            },
+          )}
         </nav>
 
-        <div className="tasks-sidebar-bottom">
+        <div className="sidebar-bottom">
           <span>
             APPLICATION ID
           </span>
 
-          <strong>
+          <strong
+            title={
+              student.applicationNumber
+            }
+          >
             {
               student.applicationNumber
             }
@@ -950,44 +1241,53 @@ export default function TasksPage() {
       {mobileMenuOpen && (
         <button
           type="button"
-          className="tasks-overlay"
+          className="overlay"
           onClick={() =>
             setMobileMenuOpen(
               false,
             )
           }
+          aria-label="Close navigation"
         />
       )}
 
-      {/* MAIN */}
+      {/* ===================================================
+          MAIN
+      =================================================== */}
 
-      <section className="tasks-main">
-        <header className="tasks-header">
+      <section className="main-content">
+        <header className="page-header">
           <div>
             <a
               href="/dashboard"
               className="back-link"
             >
-              <ChevronLeft
-                size={15}
+              <ArrowLeft
+                size={14}
               />
 
               Dashboard
             </a>
 
             <p>
-              WEEKLY PROJECT
-              WORK
+              PROJECT EXECUTION
             </p>
 
             <h1>
-              My Tasks
+              Weekly Tasks
             </h1>
+
+            <span>
+              View assignments,
+              deadlines, submit
+              work and respond to
+              evaluator revisions.
+            </span>
           </div>
 
           <button
             type="button"
-            className="refresh-tasks"
+            className="refresh-button"
             onClick={() =>
               refreshPortal(
                 session.credentials,
@@ -1006,229 +1306,330 @@ export default function TasksPage() {
               }
             />
 
-            Refresh
+            {refreshing
+              ? "Refreshing"
+              : "Refresh"}
           </button>
         </header>
 
-        {error &&
-          !selectedTask && (
-          <div className="page-error">
-            <AlertCircle
-              size={17}
-            />
-
-            {error}
-          </div>
+        {error && (
+          <Notice
+            tone="error"
+            icon={
+              <AlertCircle
+                size={18}
+              />
+            }
+            title="Unable to refresh tasks"
+            text={error}
+          />
         )}
 
-        {/* SUMMARY */}
+        {success && (
+          <Notice
+            tone="success"
+            icon={
+              <CheckCircle2
+                size={18}
+              />
+            }
+            title="Submission saved"
+            text={success}
+          />
+        )}
 
-        <section className="task-summary">
-          <article>
-            <span>
-              TOTAL ASSIGNED
-            </span>
+        {!projectActive && (
+          <Notice
+            tone="warning"
+            icon={
+              <AlertCircle
+                size={18}
+              />
+            }
+            title="Project is not active"
+            text="You can view assignments, but new task submissions are available only while your Live Project status is Active."
+          />
+        )}
 
-            <strong>
-              {
-                summary.assignedTasks
-              }
-            </strong>
-          </article>
+        {/* =================================================
+            HERO
+        ================================================= */}
 
-          <article>
-            <span>
-              SUBMITTED
-            </span>
-
-            <strong>
-              {
-                summary.submittedTasks
-              }
-            </strong>
-          </article>
-
-          <article>
-            <span>
-              APPROVED
-            </span>
-
-            <strong>
-              {
-                summary.approvedTasks
-              }
-            </strong>
-          </article>
-
-          <article>
-            <span>
-              PENDING
-            </span>
-
-            <strong>
-              {
-                summary.pendingTasks
-              }
-            </strong>
-          </article>
-        </section>
-
-        {/* FILTER */}
-
-        <section className="task-filter-bar">
+        <section className="tasks-hero">
           <div>
-            <button
-              type="button"
-              className={
-                filter ===
-                "all"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setFilter(
-                  "all",
-                )
-              }
-            >
-              All Tasks
-            </button>
+            <p>
+              CURRENT PROJECT
+            </p>
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "pending"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setFilter(
-                  "pending",
-                )
-              }
-            >
-              Pending
-            </button>
+            <h2>
+              {student.projectTitle ||
+                "Live Business Project"}
+            </h2>
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "submitted"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setFilter(
-                  "submitted",
-                )
-              }
-            >
-              Submitted
-            </button>
+            <div className="hero-meta">
+              <span>
+                {student.assignedDepartment ||
+                  "Department"}
+              </span>
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "approved"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setFilter(
-                  "approved",
-                )
-              }
-            >
-              Approved
-            </button>
+              <i />
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "revision"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setFilter(
-                  "revision",
-                )
-              }
-            >
-              Revision
-            </button>
+              <span>
+                {student.projectCode ||
+                  "Project code pending"}
+              </span>
+            </div>
           </div>
 
-          <span>
-            {
-              filteredTasks.length
-            }{" "}
-            task
-            {filteredTasks.length ===
-            1
-              ? ""
-              : "s"}
-          </span>
-        </section>
-
-        {/* TASK LIST */}
-
-        {filteredTasks.length ===
-        0 ? (
-          <section className="no-tasks">
+          <div className="hero-summary">
             <div>
-              <ClipboardList
-                size={27}
-              />
+              <span>
+                ASSIGNED
+              </span>
+
+              <strong>
+                {counts.all}
+              </strong>
             </div>
 
-            <h3>
-              No tasks found
-            </h3>
+            <div>
+              <span>
+                SUBMITTED
+              </span>
 
-            <p>
-              There are no tasks
-              matching this
-              filter.
-            </p>
-          </section>
-        ) : (
-          <section className="task-card-list">
-            {filteredTasks.map(
-              (task) => (
-                <article
-                  key={task.id}
-                  className="portal-task-card"
+              <strong>
+                {counts.submitted}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                REVISION
+              </span>
+
+              <strong>
+                {counts.revision}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                APPROVED
+              </span>
+
+              <strong>
+                {counts.approved}
+              </strong>
+            </div>
+          </div>
+        </section>
+
+        {/* =================================================
+            FILTERS
+        ================================================= */}
+
+        <section className="task-controls">
+          <div className="search-box">
+            <Search
+              size={16}
+            />
+
+            <input
+              value={search}
+              onChange={(
+                event,
+              ) =>
+                setSearch(
+                  event.target.value,
+                )
+              }
+              placeholder="Search tasks..."
+            />
+          </div>
+
+          <div className="filter-tabs">
+            {(
+              [
+                [
+                  "all",
+                  "All",
+                  counts.all,
+                ],
+                [
+                  "pending",
+                  "Pending",
+                  counts.pending,
+                ],
+                [
+                  "submitted",
+                  "Submitted",
+                  counts.submitted,
+                ],
+                [
+                  "revision",
+                  "Revision",
+                  counts.revision,
+                ],
+                [
+                  "approved",
+                  "Approved",
+                  counts.approved,
+                ],
+              ] as Array<
+                [
+                  FilterStatus,
+                  string,
+                  number,
+                ]
+              >
+            ).map(
+              ([
+                value,
+                label,
+                count,
+              ]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={
+                    filter ===
+                    value
+                      ? "active"
+                      : ""
+                  }
+                  onClick={() =>
+                    setFilter(
+                      value,
+                    )
+                  }
                 >
-                  <div className="task-week-column">
-                    <span>
-                      WEEK
-                    </span>
+                  {label}
 
-                    <strong>
-                      {
-                        task.weekNumber
-                      }
-                    </strong>
-                  </div>
+                  <span>
+                    {count}
+                  </span>
+                </button>
+              ),
+            )}
+          </div>
+        </section>
 
-                  <div className="task-card-content">
-                    <div className="task-card-top">
-                      <div>
-                        <div className="task-badges">
-                          <span
-                            className={`status ${getStatusClass(
-                              task.status,
-                            )}`}
-                          >
-                            {statusLabel(
-                              task.status,
-                            )}
-                          </span>
+        {/* =================================================
+            TASK LIST
+        ================================================= */}
+
+        <section className="task-list">
+          {filteredTasks.length ===
+          0 ? (
+            <div className="empty-state">
+              <div>
+                <ClipboardList
+                  size={28}
+                />
+              </div>
+
+              <h3>
+                {tasks.length ===
+                0
+                  ? "No weekly tasks assigned yet"
+                  : "No tasks match this filter"}
+              </h3>
+
+              <p>
+                {tasks.length ===
+                0
+                  ? "When the KRVÉ project team assigns a task in KEOS, it will automatically appear here after refresh."
+                  : "Try another status filter or clear your search."}
+              </p>
+
+              {tasks.length ===
+              0 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    refreshPortal(
+                      session.credentials,
+                    )
+                  }
+                >
+                  <RefreshCcw
+                    size={15}
+                  />
+
+                  Check for Tasks
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setFilter(
+                      "all",
+                    );
+                  }}
+                >
+                  <Filter
+                    size={15}
+                  />
+
+                  Clear Filters
+                </button>
+              )}
+            </div>
+          ) : (
+            filteredTasks.map(
+              (task) => {
+                const due =
+                  dueInfo(task);
+
+                const status =
+                  normalizeStatus(
+                    task.status,
+                  );
+
+                const expanded =
+                  expandedTaskId ===
+                  task.id;
+
+                const canSubmit =
+                  projectActive &&
+                  status !==
+                    "approved";
+
+                const hasSubmission =
+                  Boolean(
+                    task.submissionUrl,
+                  );
+
+                return (
+                  <article
+                    key={task.id}
+                    className={`task-card ${
+                      expanded
+                        ? "expanded"
+                        : ""
+                    }`}
+                  >
+                    <div className="task-card-main">
+                      <div className="week-box">
+                        <span>
+                          WEEK
+                        </span>
+
+                        <strong>
+                          {
+                            task.weekNumber
+                          }
+                        </strong>
+                      </div>
+
+                      <div className="task-copy">
+                        <div className="task-title-row">
+                          <h3>
+                            {
+                              task.title
+                            }
+                          </h3>
 
                           <span
                             className={`priority ${getPriorityClass(
@@ -1237,398 +1638,601 @@ export default function TasksPage() {
                           >
                             {statusLabel(
                               task.priority ||
-                                "Medium",
-                            )}{" "}
-                            Priority
+                                "medium",
+                            )}
                           </span>
                         </div>
 
-                        <h2>
-                          {
-                            task.title
-                          }
-                        </h2>
-                      </div>
-
-                      {task.score !==
-                        null &&
-                        task.score !==
-                          undefined && (
-                        <div className="task-score">
+                        <div className="task-meta">
                           <span>
-                            SCORE
+                            <CalendarDays
+                              size={13}
+                            />
+
+                            Due{" "}
+                            {formatDate(
+                              task.dueDate,
+                            )}
                           </span>
 
-                          <strong>
+                          <span
+                            className={`due-badge ${due.className}`}
+                          >
+                            <Clock3
+                              size={12}
+                            />
+
                             {
-                              task.score
+                              due.label
                             }
-                          </strong>
-                        </div>
-                      )}
-                    </div>
+                          </span>
 
-                    {task.description && (
-                      <p className="task-copy">
-                        {
-                          task.description
-                        }
-                      </p>
-                    )}
-
-                    <div className="task-information">
-                      <div>
-                        <span>
-                          DUE DATE
-                        </span>
-
-                        <strong>
-                          {formatDate(
-                            task.dueDate,
-                          )}
-                        </strong>
-
-                        <small>
-                          {getDueText(
-                            task,
-                          )}
-                        </small>
-                      </div>
-
-                      <div>
-                        <span>
-                          SUBMISSION
-                        </span>
-
-                        <strong>
-                          {task.submittedAt
-                            ? formatDate(
-                                task.submittedAt,
-                              )
-                            : "Not submitted"}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          WEEK
-                        </span>
-
-                        <strong>
-                          Week{" "}
-                          {
-                            task.weekNumber
-                          }
-                        </strong>
-                      </div>
-                    </div>
-
-                    {task.reviewerComment && (
-                      <div className="task-feedback">
-                        <div>
-                          <FileText
-                            size={17}
-                          />
+                          <span
+                            className={`status-badge ${getStatusClass(
+                              task.status,
+                            )}`}
+                          >
+                            {statusLabel(
+                              task.status,
+                            )}
+                          </span>
                         </div>
 
-                        <div>
-                          <strong>
-                            Evaluator
-                            Feedback
-                          </strong>
-
-                          <p>
+                        {task.description && (
+                          <p className="task-description-preview">
                             {
-                              task.reviewerComment
+                              task.description
                             }
                           </p>
-                        </div>
+                        )}
                       </div>
-                    )}
 
-                    {task.status ===
-                      "revision_requested" && (
-                      <div className="revision-warning">
-                        <AlertCircle
-                          size={17}
-                        />
+                      <div className="task-actions">
+                        {canSubmit && (
+                          <button
+                            type="button"
+                            className="primary-action"
+                            onClick={() =>
+                              openSubmission(
+                                task,
+                              )
+                            }
+                          >
+                            <Send
+                              size={15}
+                            />
 
-                        <div>
-                          <strong>
-                            Revision
-                            Required
-                          </strong>
+                            {hasSubmission
+                              ? "Update Work"
+                              : status ===
+                                "revision_requested"
+                              ? "Resubmit"
+                              : "Submit Work"}
+                          </button>
+                        )}
 
-                          <span>
-                            Review the
-                            evaluator
-                            feedback and
-                            submit an
-                            updated
-                            version of
-                            your work.
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                        {status ===
+                          "approved" && (
+                          <a
+                            href="/feedback"
+                            className="approved-action"
+                          >
+                            <CheckCircle2
+                              size={15}
+                            />
 
-                    <div className="task-actions">
-                      {task.submissionUrl && (
-                        <a
-                          href={
-                            task.submissionUrl
-                          }
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <ExternalLink
-                            size={15}
-                          />
+                            View Result
+                          </a>
+                        )}
 
-                          View Submitted
-                          Work
-                        </a>
-                      )}
-
-                      {task.status ===
-                      "approved" ? (
-                        <span className="approved-action">
-                          <Check
-                            size={15}
-                          />
-
-                          Approved
-                        </span>
-                      ) : student.status ===
-                        "active" ? (
                         <button
                           type="button"
+                          className="expand-action"
                           onClick={() =>
-                            openSubmission(
-                              task,
+                            setExpandedTaskId(
+                              expanded
+                                ? null
+                                : task.id,
                             )
                           }
                         >
-                          <Send
-                            size={15}
-                          />
+                          {expanded
+                            ? "Hide Details"
+                            : "View Details"}
 
-                          {task.submissionUrl
-                            ? "Update Submission"
-                            : "Submit Work"}
+                          <ChevronDown
+                            size={15}
+                            className={
+                              expanded
+                                ? "rotate"
+                                : ""
+                            }
+                          />
                         </button>
-                      ) : (
-                        <span className="inactive-action">
-                          Project not
-                          active
-                        </span>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ),
-            )}
-          </section>
-        )}
+
+                    {expanded && (
+                      <div className="task-details">
+                        <section className="detail-section">
+                          <div className="detail-heading">
+                            <FileText
+                              size={18}
+                            />
+
+                            <div>
+                              <span>
+                                TASK BRIEF
+                              </span>
+
+                              <strong>
+                                Assignment
+                                Instructions
+                              </strong>
+                            </div>
+                          </div>
+
+                          <p>
+                            {task.description ||
+                              "No additional task description was provided."}
+                          </p>
+                        </section>
+
+                        {task.reviewerComment && (
+                          <section className="detail-section reviewer-section">
+                            <div className="detail-heading">
+                              <MessageSquareText
+                                size={18}
+                              />
+
+                              <div>
+                                <span>
+                                  EVALUATOR
+                                  FEEDBACK
+                                </span>
+
+                                <strong>
+                                  Review
+                                  Comment
+                                </strong>
+                              </div>
+                            </div>
+
+                            <p>
+                              {
+                                task.reviewerComment
+                              }
+                            </p>
+                          </section>
+                        )}
+
+                        {hasSubmission && (
+                          <section className="detail-section submission-section">
+                            <div className="detail-heading">
+                              <FileCheck2
+                                size={18}
+                              />
+
+                              <div>
+                                <span>
+                                  YOUR
+                                  SUBMISSION
+                                </span>
+
+                                <strong>
+                                  Submitted
+                                  Work
+                                </strong>
+                              </div>
+                            </div>
+
+                            <div className="submission-info">
+                              <a
+                                href={
+                                  task.submissionUrl ||
+                                  "#"
+                                }
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Link2
+                                  size={15}
+                                />
+
+                                Open
+                                Submitted
+                                Work
+
+                                <ExternalLink
+                                  size={13}
+                                />
+                              </a>
+
+                              <div>
+                                <span>
+                                  SUBMITTED
+                                </span>
+
+                                <strong>
+                                  {formatDateTime(
+                                    task.submittedAt,
+                                  )}
+                                </strong>
+                              </div>
+
+                              {task.score !==
+                                null &&
+                                task.score !==
+                                  undefined && (
+                                  <div>
+                                    <span>
+                                      SCORE
+                                    </span>
+
+                                    <strong>
+                                      {
+                                        task.score
+                                      }
+                                    </strong>
+                                  </div>
+                                )}
+                            </div>
+
+                            {task.submissionSummary && (
+                              <div className="saved-text">
+                                <span>
+                                  SUBMISSION
+                                  SUMMARY
+                                </span>
+
+                                <p>
+                                  {
+                                    task.submissionSummary
+                                  }
+                                </p>
+                              </div>
+                            )}
+
+                            {task.studentRemarks && (
+                              <div className="saved-text">
+                                <span>
+                                  YOUR REMARKS
+                                </span>
+
+                                <p>
+                                  {
+                                    task.studentRemarks
+                                  }
+                                </p>
+                              </div>
+                            )}
+                          </section>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              },
+            )
+          )}
+        </section>
+
+        {/* =================================================
+            HELP CARD
+        ================================================= */}
+
+        <section className="submission-guide">
+          <div>
+            <Link2
+              size={21}
+            />
+          </div>
+
+          <div>
+            <p>
+              SUBMISSION GUIDE
+            </p>
+
+            <h3>
+              Submit a reviewer-accessible
+              work link.
+            </h3>
+
+            <span>
+              Google Drive, Google Docs,
+              Sheets, Canva, OneDrive or
+              another HTTPS link can be used.
+              Make sure the evaluator has
+              permission to open it.
+            </span>
+          </div>
+
+          <a href="/submissions">
+            Submission History
+
+            <ChevronRight
+              size={15}
+            />
+          </a>
+        </section>
       </section>
 
-      {/* SUBMISSION DRAWER */}
+      {/* ===================================================
+          SUBMISSION MODAL
+      =================================================== */}
 
-      {selectedTask && (
-        <div className="submission-layer">
-          <button
-            type="button"
-            className="submission-backdrop"
-            onClick={() =>
-              setSelectedTask(
-                null,
-              )
+      {submitTask && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(
+            event,
+          ) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              closeSubmission();
             }
-          />
-
-          <aside className="submission-drawer">
-            <header>
+          }}
+        >
+          <section
+            className="submission-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Submit task work"
+          >
+            <header className="modal-header">
               <div>
                 <p>
                   WEEK{" "}
                   {
-                    selectedTask.weekNumber
+                    submitTask.weekNumber
                   }
                 </p>
 
                 <h2>
-                  Submit Your
-                  Work
+                  {submitTask.submissionUrl
+                    ? "Update Submission"
+                    : "Submit Your Work"}
                 </h2>
-
-                <span>
-                  {
-                    selectedTask.title
-                  }
-                </span>
               </div>
 
               <button
                 type="button"
-                onClick={() =>
-                  setSelectedTask(
-                    null,
-                  )
+                onClick={
+                  closeSubmission
+                }
+                disabled={
+                  submitting
                 }
               >
-                <X size={20} />
+                <X size={19} />
               </button>
             </header>
+
+            <div className="modal-task">
+              <div className="modal-week">
+                {
+                  submitTask.weekNumber
+                }
+              </div>
+
+              <div>
+                <strong>
+                  {
+                    submitTask.title
+                  }
+                </strong>
+
+                <span>
+                  Due{" "}
+                  {formatDate(
+                    submitTask.dueDate,
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {submitTask.reviewerComment &&
+              normalizeStatus(
+                submitTask.status,
+              ) ===
+                "revision_requested" && (
+                <div className="revision-callout">
+                  <MessageSquareText
+                    size={18}
+                  />
+
+                  <div>
+                    <strong>
+                      Revision
+                      requested
+                    </strong>
+
+                    <p>
+                      {
+                        submitTask.reviewerComment
+                      }
+                    </p>
+                  </div>
+                </div>
+              )}
 
             <form
               onSubmit={
                 handleSubmit
               }
             >
-              <div className="drawer-task-instructions">
-                <ClipboardList
-                  size={19}
-                />
-
-                <div>
-                  <strong>
-                    Task
-                    Instructions
-                  </strong>
-
-                  <p>
-                    {selectedTask.description ||
-                      "Complete the assigned task and submit your work evidence below."}
-                  </p>
-                </div>
-              </div>
-
-              <div className="submission-field">
-                <label>
-                  WORK /
+              <label>
+                <span>
                   SUBMISSION LINK *
-                </label>
+                </span>
 
-                <input
-                  type="url"
+                <div className="input-with-icon">
+                  <Link2
+                    size={16}
+                  />
+
+                  <input
+                    type="url"
+                    value={
+                      submitForm.submissionUrl
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setSubmitForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          submissionUrl:
+                            event
+                              .target
+                              .value,
+                        }),
+                      )
+                    }
+                    placeholder="https://drive.google.com/..."
+                    required
+                  />
+                </div>
+
+                <small>
+                  Make sure link sharing
+                  allows the evaluator to
+                  open your work.
+                </small>
+              </label>
+
+              <label>
+                <span>
+                  SUBMISSION SUMMARY
+                </span>
+
+                <textarea
                   value={
-                    submissionUrl
+                    submitForm.submissionSummary
                   }
                   onChange={(
                     event,
                   ) =>
-                    setSubmissionUrl(
-                      event.target
-                        .value,
+                    setSubmitForm(
+                      (
+                        current,
+                      ) => ({
+                        ...current,
+                        submissionSummary:
+                          event
+                            .target
+                            .value,
+                      }),
                     )
                   }
-                  placeholder="Google Drive / Docs / Canva / GitHub / OneDrive link"
-                  required
+                  rows={5}
+                  placeholder="Briefly explain what you completed, your approach and the main outcome."
                 />
 
                 <small>
-                  Make sure your
-                  evaluator can
-                  access the link.
+                  A clear summary helps the
+                  evaluator review your work
+                  faster.
                 </small>
-              </div>
+              </label>
 
-              <div className="submission-field">
-                <label>
-                  WORK SUMMARY
-                </label>
+              <label>
+                <span>
+                  REMARKS / NOTES
+                </span>
 
                 <textarea
-                  rows={7}
                   value={
-                    submissionSummary
+                    submitForm.studentRemarks
                   }
                   onChange={(
                     event,
                   ) =>
-                    setSubmissionSummary(
-                      event.target
-                        .value,
+                    setSubmitForm(
+                      (
+                        current,
+                      ) => ({
+                        ...current,
+                        studentRemarks:
+                          event
+                            .target
+                            .value,
+                      }),
                     )
                   }
-                  placeholder="Describe what you completed, your approach, findings, analysis and business outcome..."
+                  rows={3}
+                  placeholder="Optional note for the evaluator."
                 />
-              </div>
+              </label>
 
-              <div className="submission-field">
-                <label>
-                  STUDENT REMARKS
-                </label>
-
-                <textarea
-                  rows={4}
-                  value={
-                    studentRemarks
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setStudentRemarks(
-                      event.target
-                        .value,
-                    )
-                  }
-                  placeholder="Optional notes for your evaluator..."
-                />
-              </div>
-
-              {error && (
-                <div className="drawer-error">
+              {submitError && (
+                <div className="submit-error">
                   <AlertCircle
-                    size={17}
+                    size={16}
                   />
 
-                  {error}
+                  {
+                    submitError
+                  }
                 </div>
               )}
 
-              {success && (
-                <div className="drawer-success">
-                  <CheckCircle2
-                    size={17}
-                  />
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="cancel-button"
+                  onClick={
+                    closeSubmission
+                  }
+                  disabled={
+                    submitting
+                  }
+                >
+                  Cancel
+                </button>
 
-                  {success}
-                </div>
-              )}
+                <button
+                  type="submit"
+                  className="submit-button"
+                  disabled={
+                    submitting
+                  }
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2
+                        size={16}
+                        className="spin"
+                      />
 
-              <button
-                type="submit"
-                className="final-submit"
-                disabled={
-                  submitting
-                }
-              >
-                {submitting ? (
-                  <>
-                    <Loader2
-                      size={17}
-                      className="spin"
-                    />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Send
+                        size={16}
+                      />
 
-                    SUBMITTING...
-                  </>
-                ) : (
-                  <>
-                    <Send
-                      size={17}
-                    />
-
-                    {selectedTask.submissionUrl
-                      ? "UPDATE SUBMISSION"
-                      : "SUBMIT FOR EVALUATION"}
-                  </>
-                )}
-              </button>
+                      {submitTask.submissionUrl
+                        ? "Update Submission"
+                        : "Submit Work"}
+                    </>
+                  )}
+                </button>
+              </div>
             </form>
-          </aside>
+          </section>
         </div>
       )}
+
+      {/* ===================================================
+          CSS
+      =================================================== */}
 
       <style jsx global>{`
         * {
@@ -1657,11 +2261,21 @@ export default function TasksPage() {
           cursor: pointer;
         }
 
+        button:disabled {
+          cursor: not-allowed;
+        }
+
+        a {
+          color: inherit;
+        }
+
         .tasks-page {
           min-height: 100vh;
         }
 
-        .tasks-sidebar {
+        /* SIDEBAR */
+
+        .sidebar {
           position: fixed;
           inset: 0 auto 0 0;
           z-index: 500;
@@ -1669,41 +2283,45 @@ export default function TasksPage() {
           width: 265px;
           height: 100vh;
           flex-direction: column;
-          border-right: 1px solid #dfe5ed;
+          border-right:
+            1px solid #dfe5ed;
           background: #fff;
         }
 
-        .tasks-sidebar-brand {
+        .sidebar-brand {
           display: flex;
           min-height: 84px;
           align-items: center;
           gap: 12px;
           padding: 0 22px;
-          border-bottom: 1px solid #edf1f5;
+          border-bottom:
+            1px solid #edf1f5;
         }
 
-        .tasks-logo {
+        .brand-logo {
           display: grid;
           width: 44px;
           height: 44px;
+          flex: 0 0 44px;
           place-items: center;
           border-radius: 12px;
-          background: linear-gradient(
-            135deg,
-            #07183a,
-            #123b8c
-          );
+          background:
+            linear-gradient(
+              135deg,
+              #07183a,
+              #123b8c
+            );
           color: #fff;
           font-weight: 900;
         }
 
-        .tasks-sidebar-brand strong {
+        .sidebar-brand strong {
           display: block;
           font-size: 16px;
           letter-spacing: 0.08em;
         }
 
-        .tasks-sidebar-brand span {
+        .sidebar-brand span {
           display: block;
           margin-top: 3px;
           color: #939fb0;
@@ -1712,25 +2330,27 @@ export default function TasksPage() {
           letter-spacing: 0.16em;
         }
 
-        .tasks-mobile-close {
+        .mobile-close {
           display: none;
           margin-left: auto;
           border: 0;
           background: transparent;
         }
 
-        .tasks-student-mini {
+        .student-mini {
           display: flex;
           align-items: center;
           gap: 11px;
           margin: 17px;
           padding: 13px;
-          border: 1px solid #e4eaf2;
+          border:
+            1px solid #e4eaf2;
           border-radius: 13px;
           background: #f8faff;
+          text-decoration: none;
         }
 
-        .tasks-avatar {
+        .avatar {
           display: grid;
           width: 38px;
           height: 38px;
@@ -1743,7 +2363,7 @@ export default function TasksPage() {
           font-weight: 900;
         }
 
-        .tasks-student-mini strong {
+        .student-mini strong {
           display: block;
           max-width: 155px;
           overflow: hidden;
@@ -1752,60 +2372,72 @@ export default function TasksPage() {
           white-space: nowrap;
         }
 
-        .tasks-student-mini span {
+        .student-mini span {
           display: block;
           margin-top: 4px;
-          color: #8b97a9;
+          color: #8c98a9;
           font-size: 9px;
         }
 
-        .tasks-sidebar nav {
+        .nav-heading {
+          padding:
+            7px 27px 10px;
+          color: #a4adba;
+          font-size: 7px;
+          font-weight: 900;
+          letter-spacing: 0.16em;
+        }
+
+        .sidebar nav {
           display: flex;
           flex: 1;
           flex-direction: column;
           gap: 4px;
           overflow-y: auto;
-          padding: 5px 13px 15px;
+          padding: 0 13px 15px;
         }
 
-        .tasks-sidebar nav a {
+        .sidebar nav a {
           display: flex;
-          min-height: 44px;
+          min-height: 45px;
           align-items: center;
+          gap: 11px;
           padding: 0 14px;
           border-radius: 10px;
-          color: #647187;
+          color: #627086;
           font-size: 10px;
           font-weight: 700;
           text-decoration: none;
         }
 
-        .tasks-sidebar nav a:hover {
+        .sidebar nav a:hover {
           background: #f3f6fb;
         }
 
-        .tasks-sidebar nav a.active {
-          background: linear-gradient(
-            135deg,
-            #09172f,
-            #102e67
-          );
+        .sidebar nav a.active {
+          background:
+            linear-gradient(
+              135deg,
+              #09172f,
+              #102e67
+            );
           color: #fff;
         }
 
-        .tasks-sidebar-bottom {
+        .sidebar-bottom {
           padding: 16px;
-          border-top: 1px solid #edf1f5;
+          border-top:
+            1px solid #edf1f5;
         }
 
-        .tasks-sidebar-bottom > span {
+        .sidebar-bottom > span {
           display: block;
           color: #9ba5b4;
           font-size: 7px;
           font-weight: 900;
         }
 
-        .tasks-sidebar-bottom > strong {
+        .sidebar-bottom > strong {
           display: block;
           margin-top: 5px;
           overflow: hidden;
@@ -1815,7 +2447,7 @@ export default function TasksPage() {
           white-space: nowrap;
         }
 
-        .tasks-sidebar-bottom button {
+        .sidebar-bottom button {
           display: flex;
           width: 100%;
           height: 40px;
@@ -1823,231 +2455,420 @@ export default function TasksPage() {
           gap: 9px;
           margin-top: 13px;
           padding: 0 12px;
-          border: 1px solid #dfe5ed;
+          border:
+            1px solid #dfe5ed;
           border-radius: 9px;
           background: #fff;
           color: #66748a;
           font-size: 9px;
         }
 
-        .tasks-main {
+        /* MAIN */
+
+        .main-content {
           min-height: 100vh;
           margin-left: 265px;
-          padding: 0 36px 50px;
+          padding:
+            0 36px 55px;
         }
 
-        .tasks-header {
+        .page-header {
           display: flex;
-          min-height: 112px;
+          min-height: 120px;
           align-items: center;
-          justify-content: space-between;
+          justify-content:
+            space-between;
           gap: 20px;
-          border-bottom: 1px solid #dfe5ed;
+          border-bottom:
+            1px solid #dfe5ed;
         }
 
         .back-link {
           display: inline-flex;
           align-items: center;
-          gap: 4px;
-          margin-bottom: 12px;
-          color: #728096;
+          gap: 5px;
+          margin-bottom: 8px;
+          color: #718096;
           font-size: 9px;
           font-weight: 700;
           text-decoration: none;
         }
 
-        .tasks-header p {
+        .page-header p {
           margin: 0;
-          color: #2a5ad0;
+          color: #2959d1;
           font-size: 8px;
           font-weight: 900;
           letter-spacing: 0.17em;
         }
 
-        .tasks-header h1 {
-          margin: 6px 0 0;
-          font-size: 26px;
+        .page-header h1 {
+          margin:
+            6px 0 5px;
+          font-size: 27px;
         }
 
-        .refresh-tasks {
+        .page-header > div > span {
+          color: #8793a4;
+          font-size: 9px;
+        }
+
+        .refresh-button {
           display: flex;
           height: 40px;
           align-items: center;
           gap: 7px;
           padding: 0 13px;
-          border: 1px solid #dce3ed;
+          border:
+            1px solid #dce3ed;
           border-radius: 9px;
           background: #fff;
-          color: #536278;
+          color: #52637b;
           font-size: 9px;
           font-weight: 800;
         }
 
-        .page-error {
+        /* NOTICES */
+
+        .notice {
+          display: flex;
+          align-items: flex-start;
+          gap: 11px;
+          margin-top: 17px;
+          padding: 14px;
+          border-radius: 11px;
+        }
+
+        .notice strong {
+          display: block;
+          font-size: 9px;
+        }
+
+        .notice span {
+          display: block;
+          margin-top: 3px;
+          font-size: 9px;
+          line-height: 1.55;
+        }
+
+        .notice.error {
+          border:
+            1px solid #ffd1d6;
+          background: #fff3f4;
+          color: #b63743;
+        }
+
+        .notice.success {
+          border:
+            1px solid #c7ead7;
+          background: #f0fbf5;
+          color: #24794d;
+        }
+
+        .notice.warning {
+          border:
+            1px solid #f0d59f;
+          background: #fff9ed;
+          color: #9b671d;
+        }
+
+        /* HERO */
+
+        .tasks-hero {
+          display: flex;
+          min-height: 165px;
+          align-items: center;
+          justify-content:
+            space-between;
+          gap: 28px;
+          margin-top: 25px;
+          padding: 30px 34px;
+          border-radius: 18px;
+          background:
+            radial-gradient(
+              circle at 88% 18%,
+              rgba(
+                93,
+                137,
+                255,
+                0.43
+              ),
+              transparent 27%
+            ),
+            linear-gradient(
+              135deg,
+              #061936,
+              #0c3279
+            );
+          color: #fff;
+        }
+
+        .tasks-hero > div:first-child > p {
+          margin: 0;
+          color: #9fbafd;
+          font-size: 8px;
+          font-weight: 900;
+          letter-spacing: 0.17em;
+        }
+
+        .tasks-hero h2 {
+          margin:
+            9px 0 7px;
+          font-size: 25px;
+        }
+
+        .hero-meta {
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-top: 18px;
-          padding: 13px;
-          border: 1px solid #ffd2d6;
-          border-radius: 10px;
-          background: #fff4f5;
-          color: #b32d38;
-          font-size: 10px;
+          flex-wrap: wrap;
+          gap: 10px;
+          color:
+            rgba(
+              255,
+              255,
+              255,
+              0.63
+            );
+          font-size: 9px;
         }
 
-        .task-summary {
+        .hero-meta i {
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.35
+            );
+        }
+
+        .hero-summary {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 14px;
-          margin-top: 24px;
+          grid-template-columns:
+            repeat(
+              4,
+              minmax(
+                80px,
+                1fr
+              )
+            );
+          gap: 8px;
+          min-width: 430px;
         }
 
-        .task-summary article {
-          padding: 20px;
-          border: 1px solid #dfe5ed;
+        .hero-summary > div {
+          padding: 13px;
+          border:
+            1px solid
+            rgba(
+              255,
+              255,
+              255,
+              0.13
+            );
+          border-radius: 11px;
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.07
+            );
+        }
+
+        .hero-summary span {
+          display: block;
+          color: #afc1e9;
+          font-size: 6px;
+          font-weight: 900;
+        }
+
+        .hero-summary strong {
+          display: block;
+          margin-top: 5px;
+          font-size: 20px;
+        }
+
+        /* CONTROLS */
+
+        .task-controls {
+          display: flex;
+          align-items: center;
+          justify-content:
+            space-between;
+          gap: 15px;
+          margin-top: 17px;
+          padding: 13px;
+          border:
+            1px solid #dfe5ed;
           border-radius: 14px;
           background: #fff;
         }
 
-        .task-summary span {
-          color: #8d98a9;
-          font-size: 8px;
-          font-weight: 900;
-          letter-spacing: 0.08em;
-        }
-
-        .task-summary strong {
-          display: block;
-          margin-top: 8px;
-          font-size: 26px;
-        }
-
-        .task-filter-bar {
+        .search-box {
           display: flex;
+          width: 270px;
+          height: 39px;
           align-items: center;
-          justify-content: space-between;
-          gap: 20px;
-          margin-top: 18px;
-          padding: 12px 14px;
-          border: 1px solid #dfe5ed;
-          border-radius: 13px;
-          background: #fff;
+          gap: 8px;
+          padding: 0 11px;
+          border:
+            1px solid #dfe5ed;
+          border-radius: 9px;
+          color: #8190a5;
         }
 
-        .task-filter-bar > div {
+        .search-box input {
+          width: 100%;
+          border: 0;
+          outline: 0;
+          background: transparent;
+          color: #314158;
+          font-size: 9px;
+        }
+
+        .filter-tabs {
           display: flex;
           flex-wrap: wrap;
-          gap: 6px;
+          gap: 5px;
         }
 
-        .task-filter-bar button {
-          min-height: 35px;
-          padding: 0 12px;
-          border: 0;
+        .filter-tabs button {
+          display: flex;
+          min-height: 34px;
+          align-items: center;
+          gap: 6px;
+          padding: 0 10px;
+          border:
+            1px solid #e1e6ee;
           border-radius: 8px;
-          background: transparent;
-          color: #718096;
-          font-size: 9px;
+          background: #fff;
+          color: #66758b;
+          font-size: 8px;
           font-weight: 800;
         }
 
-        .task-filter-bar button.active {
-          background: #0c2c70;
+        .filter-tabs button span {
+          display: grid;
+          min-width: 18px;
+          height: 18px;
+          place-items: center;
+          border-radius: 50px;
+          background: #f0f3f7;
+          font-size: 7px;
+        }
+
+        .filter-tabs button.active {
+          border-color: #1747a6;
+          background: #123c91;
           color: #fff;
         }
 
-        .task-filter-bar > span {
-          color: #929dae;
-          font-size: 9px;
+        .filter-tabs button.active span {
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.16
+            );
         }
 
-        .task-card-list {
+        /* TASK LIST */
+
+        .task-list {
           display: flex;
           flex-direction: column;
-          gap: 14px;
-          margin-top: 18px;
+          gap: 12px;
+          margin-top: 17px;
         }
 
-        .portal-task-card {
-          display: grid;
-          grid-template-columns: 100px 1fr;
+        .task-card {
           overflow: hidden;
-          border: 1px solid #dfe5ed;
+          border:
+            1px solid #dfe5ed;
           border-radius: 15px;
           background: #fff;
+          box-shadow:
+            0 5px 20px
+            rgba(
+              17,
+              44,
+              85,
+              0.035
+            );
         }
 
-        .task-week-column {
+        .task-card.expanded {
+          border-color: #c4d3ec;
+        }
+
+        .task-card-main {
+          display: grid;
+          grid-template-columns:
+            58px
+            minmax(
+              0,
+              1fr
+            )
+            auto;
+          align-items: start;
+          gap: 16px;
+          padding: 20px;
+        }
+
+        .week-box {
+          display: grid;
+          width: 54px;
+          height: 58px;
+          place-items: center;
+          align-content: center;
+          border-radius: 12px;
+          background: #edf3ff;
+          color: #2c5ccc;
+        }
+
+        .week-box span {
+          font-size: 6px;
+          font-weight: 900;
+        }
+
+        .week-box strong {
+          margin-top: 3px;
+          font-size: 19px;
+        }
+
+        .task-title-row {
           display: flex;
           align-items: center;
-          justify-content: center;
-          flex-direction: column;
-          background: #f4f7fd;
-        }
-
-        .task-week-column span {
-          color: #8793a5;
-          font-size: 8px;
-          font-weight: 900;
-        }
-
-        .task-week-column strong {
-          margin-top: 4px;
-          color: #2558d0;
-          font-size: 30px;
-        }
-
-        .task-card-content {
-          padding: 23px;
-        }
-
-        .task-card-top {
-          display: flex;
-          justify-content: space-between;
-          gap: 20px;
-        }
-
-        .task-badges {
-          display: flex;
           flex-wrap: wrap;
-          gap: 7px;
+          gap: 9px;
         }
 
-        .status,
-        .priority {
+        .task-title-row h3 {
+          margin: 0;
+          color: #25344b;
+          font-size: 14px;
+        }
+
+        .priority,
+        .status-badge,
+        .due-badge {
           display: inline-flex;
           width: fit-content;
-          padding: 6px 9px;
-          border-radius: 50px;
-          font-size: 8px;
+          align-items: center;
+          gap: 4px;
+          padding: 5px 7px;
+          border-radius: 40px;
+          font-size: 7px;
           font-weight: 900;
+        }
+
+        .priority {
           text-transform: uppercase;
-        }
-
-        .status.success {
-          background: #e9f8ef;
-          color: #188449;
-        }
-
-        .status.review {
-          background: #eaf1ff;
-          color: #2558ce;
-        }
-
-        .status.warning {
-          background: #fff3dd;
-          color: #b66d13;
-        }
-
-        .status.danger {
-          background: #fff0f1;
-          color: #c03945;
-        }
-
-        .status.neutral {
-          background: #f0f3f7;
-          color: #68768a;
         }
 
         .priority.high {
@@ -2065,368 +2886,647 @@ export default function TasksPage() {
           color: #248254;
         }
 
-        .task-card-top h2 {
-          margin: 12px 0 0;
-          font-size: 18px;
-        }
-
-        .task-score {
-          text-align: right;
-        }
-
-        .task-score span {
-          color: #99a3b3;
-          font-size: 8px;
-        }
-
-        .task-score strong {
-          display: block;
-          margin-top: 4px;
-          color: #2058d3;
-          font-size: 25px;
-        }
-
-        .task-copy {
-          max-width: 900px;
-          margin: 14px 0 0;
-          color: #768397;
-          font-size: 11px;
-          line-height: 1.75;
-        }
-
-        .task-information {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-          margin-top: 18px;
-        }
-
-        .task-information > div {
-          padding: 13px;
-          border: 1px solid #e8ecf2;
-          border-radius: 10px;
-          background: #fafcff;
-        }
-
-        .task-information span {
-          display: block;
-          color: #99a4b4;
-          font-size: 7px;
-          font-weight: 900;
-        }
-
-        .task-information strong {
-          display: block;
-          margin-top: 5px;
-          color: #3d4b61;
-          font-size: 10px;
-        }
-
-        .task-information small {
-          display: block;
-          margin-top: 5px;
-          color: #9aa5b4;
-          font-size: 8px;
-        }
-
-        .task-feedback,
-        .revision-warning {
+        .task-meta {
           display: flex;
-          gap: 11px;
-          margin-top: 16px;
-          padding: 14px;
-          border-radius: 11px;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 8px;
         }
 
-        .task-feedback {
-          background: #f4f7fc;
-          color: #456186;
+        .task-meta > span:first-child {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          color: #7d899c;
+          font-size: 8px;
         }
 
-        .revision-warning {
-          border: 1px solid #ffe0b2;
-          background: #fff8eb;
-          color: #b66b13;
+        .due-badge.normal,
+        .due-badge.neutral {
+          background: #f1f4f8;
+          color: #66778e;
         }
 
-        .task-feedback strong,
-        .revision-warning strong {
+        .due-badge.urgent {
+          background: #fff3df;
+          color: #b66f17;
+        }
+
+        .due-badge.overdue {
+          background: #fff0f1;
+          color: #bf3c49;
+        }
+
+        .due-badge.complete {
+          background: #eaf8f0;
+          color: #258452;
+        }
+
+        .status-badge.pending {
+          background: #f1f4f8;
+          color: #68778b;
+        }
+
+        .status-badge.submitted {
+          background: #edf3ff;
+          color: #2d5fd5;
+        }
+
+        .status-badge.revision {
+          background: #fff3df;
+          color: #b46c14;
+        }
+
+        .status-badge.approved {
+          background: #eaf8f0;
+          color: #20804f;
+        }
+
+        .status-badge.rejected {
+          background: #fff0f1;
+          color: #bd3b47;
+        }
+
+        .task-description-preview {
+          display: -webkit-box;
+          max-width: 800px;
+          margin:
+            10px 0 0;
+          overflow: hidden;
+          color: #7a8799;
           font-size: 9px;
-        }
-
-        .task-feedback p,
-        .revision-warning span {
-          display: block;
-          margin: 5px 0 0;
-          font-size: 10px;
           line-height: 1.6;
-        }
-
-        .task-feedback p {
-          color: #718096;
+          -webkit-box-orient:
+            vertical;
+          -webkit-line-clamp: 2;
         }
 
         .task-actions {
           display: flex;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-          gap: 8px;
-          margin-top: 17px;
+          min-width: 150px;
+          align-items: stretch;
+          flex-direction: column;
+          gap: 6px;
         }
 
-        .task-actions a,
         .task-actions button,
-        .approved-action,
-        .inactive-action {
-          display: inline-flex;
-          min-height: 38px;
+        .task-actions a {
+          display: flex;
+          min-height: 35px;
           align-items: center;
-          gap: 7px;
-          padding: 0 14px;
-          border-radius: 9px;
-          font-size: 9px;
+          justify-content: center;
+          gap: 6px;
+          padding: 0 10px;
+          border-radius: 8px;
+          font-size: 8px;
           font-weight: 800;
           text-decoration: none;
         }
 
-        .task-actions a {
-          border: 1px solid #dce3ec;
-          color: #5c6d84;
-        }
-
-        .task-actions button {
+        .primary-action {
           border: 0;
-          background: #174ec3;
+          background: #123f9a;
           color: #fff;
         }
 
         .approved-action {
-          background: #eaf8f0;
-          color: #1f7e50;
+          border:
+            1px solid #bde3cf;
+          background: #eefaf3;
+          color: #247c4e;
         }
 
-        .inactive-action {
-          background: #f1f3f7;
-          color: #798596;
+        .expand-action {
+          border:
+            1px solid #dce3ec;
+          background: #fff;
+          color: #5e6f86;
         }
 
-        .no-tasks {
+        .expand-action svg {
+          transition:
+            transform
+              0.18s ease;
+        }
+
+        .expand-action svg.rotate {
+          transform:
+            rotate(180deg);
+        }
+
+        /* EXPANDED DETAILS */
+
+        .task-details {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              2,
+              minmax(
+                0,
+                1fr
+              )
+            );
+          gap: 12px;
+          padding:
+            0 20px 20px 94px;
+          border-top:
+            1px solid #eef1f5;
+          background: #fbfcfe;
+        }
+
+        .detail-section {
+          margin-top: 16px;
+          padding: 16px;
+          border:
+            1px solid #e2e7ef;
+          border-radius: 11px;
+          background: #fff;
+        }
+
+        .detail-section.submission-section {
+          grid-column: 1 / -1;
+        }
+
+        .reviewer-section {
+          border-color: #f0d49f;
+          background: #fffaf1;
+        }
+
+        .detail-heading {
           display: flex;
-          min-height: 300px;
+          align-items: center;
+          gap: 9px;
+          color: #3e65aa;
+        }
+
+        .detail-heading span {
+          display: block;
+          color: #8a98aa;
+          font-size: 6px;
+          font-weight: 900;
+          letter-spacing: 0.1em;
+        }
+
+        .detail-heading strong {
+          display: block;
+          margin-top: 3px;
+          color: #324058;
+          font-size: 9px;
+        }
+
+        .detail-section > p {
+          margin:
+            12px 0 0;
+          color: #657389;
+          font-size: 9px;
+          line-height: 1.75;
+          white-space: pre-line;
+        }
+
+        .submission-info {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 14px;
+        }
+
+        .submission-info a {
+          display: inline-flex;
+          min-height: 35px;
+          align-items: center;
+          gap: 6px;
+          padding: 0 10px;
+          border-radius: 8px;
+          background: #123f9a;
+          color: #fff;
+          font-size: 8px;
+          font-weight: 800;
+          text-decoration: none;
+        }
+
+        .submission-info > div {
+          min-width: 120px;
+          padding: 9px 11px;
+          border-radius: 8px;
+          background: #f5f7fa;
+        }
+
+        .submission-info span,
+        .saved-text > span {
+          display: block;
+          color: #98a3b4;
+          font-size: 6px;
+          font-weight: 900;
+        }
+
+        .submission-info strong {
+          display: block;
+          margin-top: 4px;
+          color: #4a586d;
+          font-size: 8px;
+        }
+
+        .saved-text {
+          margin-top: 13px;
+          padding-top: 12px;
+          border-top:
+            1px solid #edf0f4;
+        }
+
+        .saved-text p {
+          margin:
+            5px 0 0;
+          color: #66758a;
+          font-size: 9px;
+          line-height: 1.6;
+          white-space: pre-line;
+        }
+
+        /* EMPTY */
+
+        .empty-state {
+          display: flex;
+          min-height: 315px;
           align-items: center;
           justify-content: center;
           flex-direction: column;
-          margin-top: 18px;
-          border: 1px solid #dfe5ed;
+          padding: 30px;
+          border:
+            1px solid #dfe5ed;
           border-radius: 15px;
           background: #fff;
           text-align: center;
         }
 
-        .no-tasks > div {
+        .empty-state > div {
           display: grid;
-          width: 55px;
-          height: 55px;
+          width: 58px;
+          height: 58px;
           place-items: center;
-          border-radius: 14px;
-          background: #eef3fc;
-          color: #5875aa;
+          border-radius: 15px;
+          background: #edf3ff;
+          color: #4b6da9;
         }
 
-        .no-tasks h3 {
-          margin: 14px 0 6px;
+        .empty-state h3 {
+          margin:
+            15px 0 6px;
+          font-size: 14px;
         }
 
-        .no-tasks p {
+        .empty-state p {
+          max-width: 500px;
           margin: 0;
           color: #8793a4;
-          font-size: 10px;
+          font-size: 9px;
+          line-height: 1.65;
         }
 
-        .submission-layer {
+        .empty-state button {
+          display: flex;
+          min-height: 37px;
+          align-items: center;
+          gap: 6px;
+          margin-top: 15px;
+          padding: 0 12px;
+          border:
+            1px solid #d7e0ed;
+          border-radius: 8px;
+          background: #fff;
+          color: #426199;
+          font-size: 8px;
+          font-weight: 800;
+        }
+
+        /* GUIDE */
+
+        .submission-guide {
+          display: grid;
+          grid-template-columns:
+            auto 1fr auto;
+          align-items: center;
+          gap: 14px;
+          margin-top: 17px;
+          padding: 18px;
+          border:
+            1px solid #d4e1f7;
+          border-radius: 14px;
+          background: #f7faff;
+        }
+
+        .submission-guide > div:first-child {
+          display: grid;
+          width: 43px;
+          height: 43px;
+          place-items: center;
+          border-radius: 11px;
+          background: #e9f0ff;
+          color: #2b5bd2;
+        }
+
+        .submission-guide p {
+          margin: 0;
+          color: #2b5acf;
+          font-size: 7px;
+          font-weight: 900;
+          letter-spacing: 0.13em;
+        }
+
+        .submission-guide h3 {
+          margin:
+            5px 0 4px;
+          font-size: 12px;
+        }
+
+        .submission-guide span {
+          color: #748197;
+          font-size: 9px;
+          line-height: 1.55;
+        }
+
+        .submission-guide a {
+          display: flex;
+          min-height: 36px;
+          align-items: center;
+          gap: 4px;
+          padding: 0 11px;
+          border-radius: 8px;
+          background: #153f97;
+          color: #fff;
+          font-size: 8px;
+          font-weight: 800;
+          text-decoration: none;
+        }
+
+        /* MODAL */
+
+        .modal-backdrop {
           position: fixed;
           inset: 0;
-          z-index: 9999;
+          z-index: 2000;
+          display: grid;
+          place-items: center;
+          padding: 20px;
+          background:
+            rgba(
+              7,
+              16,
+              31,
+              0.62
+            );
+          backdrop-filter:
+            blur(4px);
         }
 
-        .submission-backdrop {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          border: 0;
-          background: rgba(
-            7,
-            15,
-            31,
-            0.65
-          );
-          backdrop-filter: blur(5px);
-        }
-
-        .submission-drawer {
-          position: absolute;
-          inset: 0 0 0 auto;
-          width: min(
-            620px,
-            96vw
-          );
+        .submission-modal {
+          width:
+            min(
+              620px,
+              100%
+            );
+          max-height:
+            calc(
+              100vh - 40px
+            );
           overflow-y: auto;
+          border-radius: 18px;
           background: #fff;
           box-shadow:
-            -20px 0 70px
+            0 28px 80px
             rgba(
-              12,
-              29,
-              61,
-              0.22
+              0,
+              0,
+              0,
+              0.25
             );
         }
 
-        .submission-drawer header {
+        .modal-header {
           display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
+          align-items: center;
+          justify-content:
+            space-between;
           gap: 20px;
-          padding: 33px;
-          border-bottom: 1px solid #e4e9f0;
+          padding: 22px 24px;
+          border-bottom:
+            1px solid #e8ecf2;
         }
 
-        .submission-drawer header p {
+        .modal-header p {
           margin: 0;
-          color: #2b59cf;
-          font-size: 8px;
+          color: #2b5bd2;
+          font-size: 7px;
           font-weight: 900;
-          letter-spacing: 0.16em;
+          letter-spacing: 0.13em;
         }
 
-        .submission-drawer header h2 {
-          margin: 8px 0 5px;
-          font-size: 26px;
+        .modal-header h2 {
+          margin:
+            5px 0 0;
+          font-size: 19px;
         }
 
-        .submission-drawer header span {
-          color: #8793a5;
-          font-size: 10px;
-        }
-
-        .submission-drawer header button {
+        .modal-header button {
           display: grid;
-          width: 41px;
-          height: 41px;
+          width: 36px;
+          height: 36px;
           place-items: center;
-          border: 1px solid #dce3ec;
-          border-radius: 10px;
+          border:
+            1px solid #dfe5ed;
+          border-radius: 9px;
           background: #fff;
+          color: #64748a;
         }
 
-        .submission-drawer form {
-          padding: 28px 33px 45px;
-        }
-
-        .drawer-task-instructions {
+        .modal-task {
           display: flex;
+          align-items: center;
           gap: 11px;
-          padding: 15px;
-          border: 1px solid #dbe6ff;
+          margin:
+            18px 24px 0;
+          padding: 13px;
           border-radius: 11px;
-          background: #f4f7ff;
-          color: #2553bf;
+          background: #f6f9ff;
         }
 
-        .drawer-task-instructions strong {
+        .modal-week {
+          display: grid;
+          width: 38px;
+          height: 38px;
+          place-items: center;
+          border-radius: 9px;
+          background: #123f99;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .modal-task strong {
+          display: block;
+          color: #344158;
           font-size: 10px;
         }
 
-        .drawer-task-instructions p {
-          margin: 5px 0 0;
-          color: #6a80ae;
-          font-size: 10px;
-          line-height: 1.6;
+        .modal-task span {
+          display: block;
+          margin-top: 4px;
+          color: #8995a6;
+          font-size: 8px;
         }
 
-        .submission-field {
-          margin-top: 21px;
+        .revision-callout {
+          display: flex;
+          gap: 10px;
+          margin:
+            12px 24px 0;
+          padding: 13px;
+          border:
+            1px solid #efd49f;
+          border-radius: 10px;
+          background: #fff9ed;
+          color: #a26b1f;
         }
 
-        .submission-field label {
+        .revision-callout strong {
+          display: block;
+          font-size: 9px;
+        }
+
+        .revision-callout p {
+          margin:
+            4px 0 0;
+          color: #886d45;
+          font-size: 9px;
+          line-height: 1.55;
+        }
+
+        .submission-modal form {
+          display: flex;
+          flex-direction: column;
+          gap: 17px;
+          padding: 22px 24px 24px;
+        }
+
+        .submission-modal label > span {
           display: block;
           margin-bottom: 7px;
-          color: #526078;
-          font-size: 9px;
-          font-weight: 900;
-        }
-
-        .submission-field input,
-        .submission-field textarea {
-          width: 100%;
-          padding: 14px;
-          border: 1px solid #dbe2ec;
-          border-radius: 10px;
-          outline: none;
-          background: #fbfcfe;
-          resize: vertical;
-        }
-
-        .submission-field input {
-          height: 50px;
-        }
-
-        .submission-field small {
-          display: block;
-          margin-top: 6px;
-          color: #98a3b4;
-          font-size: 8px;
-        }
-
-        .drawer-error,
-        .drawer-success {
-          display: flex;
-          gap: 8px;
-          margin-top: 18px;
-          padding: 12px;
-          border-radius: 9px;
-          font-size: 10px;
-          line-height: 1.5;
-        }
-
-        .drawer-error {
-          background: #fff3f4;
-          color: #b42b37;
-        }
-
-        .drawer-success {
-          background: #effbf4;
-          color: #22794c;
-        }
-
-        .final-submit {
-          display: flex;
-          width: 100%;
-          height: 53px;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          margin-top: 23px;
-          border: 0;
-          border-radius: 10px;
-          background: linear-gradient(
-            135deg,
-            #123e9c,
-            #235de5
-          );
-          color: #fff;
-          font-size: 10px;
+          color: #69788e;
+          font-size: 7px;
           font-weight: 900;
           letter-spacing: 0.08em;
         }
 
-        .final-submit:disabled {
-          opacity: 0.7;
+        .submission-modal input,
+        .submission-modal textarea {
+          width: 100%;
+          border:
+            1px solid #dce3ec;
+          border-radius: 10px;
+          outline: none;
+          background: #fff;
+          color: #314057;
+          font-size: 10px;
+          transition:
+            border-color
+              0.18s ease;
         }
 
-        .tasks-mobile-header,
-        .tasks-overlay {
+        .submission-modal input:focus,
+        .submission-modal textarea:focus {
+          border-color: #3d68c4;
+        }
+
+        .input-with-icon {
+          position: relative;
+        }
+
+        .input-with-icon svg {
+          position: absolute;
+          top: 50%;
+          left: 12px;
+          transform:
+            translateY(-50%);
+          color: #7f90aa;
+        }
+
+        .submission-modal input {
+          height: 44px;
+          padding: 0 12px 0 38px;
+        }
+
+        .submission-modal textarea {
+          min-height: 90px;
+          resize: vertical;
+          padding: 11px 12px;
+          line-height: 1.6;
+        }
+
+        .submission-modal label small {
+          display: block;
+          margin-top: 6px;
+          color: #9aa5b5;
+          font-size: 7px;
+          line-height: 1.5;
+        }
+
+        .submit-error {
+          display: flex;
+          align-items: flex-start;
+          gap: 7px;
+          padding: 11px;
+          border:
+            1px solid #ffd2d7;
+          border-radius: 9px;
+          background: #fff3f4;
+          color: #b53541;
+          font-size: 8px;
+          line-height: 1.5;
+        }
+
+        .modal-actions {
+          display: flex;
+          justify-content:
+            flex-end;
+          gap: 8px;
+          padding-top: 3px;
+        }
+
+        .modal-actions button {
+          display: flex;
+          min-height: 40px;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          padding: 0 14px;
+          border-radius: 9px;
+          font-size: 9px;
+          font-weight: 800;
+        }
+
+        .cancel-button {
+          border:
+            1px solid #dce3ec;
+          background: #fff;
+          color: #64748a;
+        }
+
+        .submit-button {
+          border: 0;
+          background: #123f99;
+          color: #fff;
+        }
+
+        .submit-button:disabled,
+        .cancel-button:disabled {
+          opacity: 0.55;
+        }
+
+        /* MOBILE */
+
+        .mobile-header,
+        .overlay {
           display: none;
         }
 
@@ -2444,70 +3544,99 @@ export default function TasksPage() {
         }
 
         @media (
-          max-width: 1050px
+          max-width: 1120px
         ) {
-          .task-summary {
-            grid-template-columns:
-              1fr 1fr;
+          .tasks-hero {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .hero-summary {
+            min-width: 0;
+          }
+
+          .task-controls {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .search-box {
+            width: 100%;
           }
         }
 
         @media (
           max-width: 820px
         ) {
-          .tasks-mobile-header {
+          .mobile-header {
             position: sticky;
             top: 0;
             z-index: 450;
             display: flex;
             height: 62px;
             align-items: center;
-            justify-content: space-between;
+            justify-content:
+              space-between;
             padding: 0 18px;
-            border-bottom: 1px solid #dfe5ed;
-            background: rgba(
-              255,
-              255,
-              255,
-              0.95
-            );
+            border-bottom:
+              1px solid #dfe5ed;
+            background:
+              rgba(
+                255,
+                255,
+                255,
+                0.96
+              );
           }
 
-          .tasks-mobile-header strong {
+          .mobile-header strong {
+            display: block;
             color: #0a2c6e;
+            font-size: 16px;
             letter-spacing: 0.1em;
           }
 
-          .tasks-mobile-header button {
+          .mobile-header span {
+            display: block;
+            margin-top: 2px;
+            color: #98a3b3;
+            font-size: 6px;
+            font-weight: 800;
+            letter-spacing: 0.13em;
+          }
+
+          .mobile-header button {
             display: grid;
             width: 38px;
             height: 38px;
             place-items: center;
-            border: 1px solid #dce3ec;
+            border:
+              1px solid #dce3ec;
             border-radius: 9px;
             background: #fff;
           }
 
-          .tasks-sidebar {
+          .sidebar {
             z-index: 1001;
             width: 280px;
             transform:
               translateX(-100%);
             transition:
-              transform 0.25s ease;
+              transform
+              0.25s ease;
           }
 
-          .tasks-sidebar.open {
+          .sidebar.open {
             transform:
               translateX(0);
           }
 
-          .tasks-mobile-close {
+          .mobile-close {
             display: grid;
             place-items: center;
           }
 
-          .tasks-overlay {
+          .overlay {
             position: fixed;
             inset: 0;
             z-index: 1000;
@@ -2515,83 +3644,155 @@ export default function TasksPage() {
             width: 100%;
             height: 100%;
             border: 0;
-            background: rgba(
-              7,
-              16,
-              31,
-              0.5
-            );
+            background:
+              rgba(
+                7,
+                16,
+                31,
+                0.5
+              );
           }
 
-          .tasks-main {
+          .main-content {
             margin-left: 0;
-            padding: 0 17px 40px;
+            padding:
+              0 17px 40px;
           }
 
-          .portal-task-card {
+          .task-card-main {
+            grid-template-columns:
+              52px 1fr;
+          }
+
+          .task-actions {
+            grid-column:
+              1 / -1;
+            min-width: 0;
+            flex-direction: row;
+            padding-left: 68px;
+          }
+
+          .task-details {
             grid-template-columns:
               1fr;
+            padding:
+              0 20px 20px;
           }
 
-          .task-week-column {
-            min-height: 60px;
-            flex-direction: row;
-            gap: 7px;
+          .detail-section.submission-section {
+            grid-column: auto;
           }
 
-          .task-week-column strong {
-            font-size: 19px;
-          }
-
-          .task-information {
+          .submission-guide {
             grid-template-columns:
-              1fr 1fr;
+              auto 1fr;
+          }
+
+          .submission-guide a {
+            grid-column:
+              1 / -1;
+            width: fit-content;
           }
         }
 
         @media (
           max-width: 560px
         ) {
-          .task-summary {
+          .hero-summary {
+            grid-template-columns:
+              1fr 1fr;
+          }
+
+          .filter-tabs {
+            display: grid;
+            grid-template-columns:
+              1fr 1fr;
+          }
+
+          .task-card-main {
             grid-template-columns:
               1fr;
           }
 
-          .task-filter-bar {
+          .week-box {
+            width: 50px;
+          }
+
+          .task-actions {
+            grid-column: auto;
+            padding-left: 0;
+            flex-direction: column;
+          }
+
+          .task-title-row {
             align-items:
               flex-start;
             flex-direction: column;
           }
 
-          .task-card-top {
-            flex-direction: column;
+          .page-header > div > span {
+            display: block;
+            max-width: 250px;
+            line-height: 1.5;
           }
 
-          .task-score {
-            text-align: left;
+          .refresh-button {
+            width: 41px;
+            padding: 0;
+            justify-content: center;
+            font-size: 0;
           }
 
-          .task-information {
-            grid-template-columns:
-              1fr;
+          .submission-modal {
+            border-radius: 14px;
           }
 
-          .task-actions {
-            justify-content:
-              flex-start;
+          .modal-actions {
+            flex-direction: column-reverse;
           }
 
-          .submission-drawer {
+          .modal-actions button {
             width: 100%;
-          }
-
-          .submission-drawer header,
-          .submission-drawer form {
-            padding-left: 20px;
-            padding-right: 20px;
           }
         }
       `}</style>
     </main>
+  );
+}
+
+/* =========================================================
+   SMALL COMPONENTS
+========================================================= */
+
+function Notice({
+  tone,
+  icon,
+  title,
+  text,
+}: {
+  tone:
+    | "error"
+    | "success"
+    | "warning";
+  icon: ReactNode;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div
+      className={`notice ${tone}`}
+    >
+      {icon}
+
+      <div>
+        <strong>
+          {title}
+        </strong>
+
+        <span>
+          {text}
+        </span>
+      </div>
+    </div>
   );
 }
