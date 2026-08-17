@@ -19,16 +19,15 @@ type RequestBody = {
 function normalizePhone(
   value: unknown,
 ) {
-  const digits =
-    String(value ?? "")
-      .replace(/\D/g, "");
-
-  return digits.slice(-10);
+  return String(value ?? "")
+    .replace(/\D/g, "")
+    .slice(-10);
 }
 
 function getApiUrl() {
   const value =
     process.env.KRVE_API_URL?.trim() ||
+    process.env.KRVE_CENTRAL_API_URL?.trim() ||
     process.env.NEXT_PUBLIC_KRVE_API_URL?.trim() ||
     "";
 
@@ -38,19 +37,14 @@ function getApiUrl() {
     );
   }
 
-  return value.replace(
-    /\/+$/,
-    "",
-  );
+  return value.replace(/\/+$/, "");
 }
 
 async function getResponseData(
   response: Response,
 ) {
   const contentType =
-    response.headers.get(
-      "content-type",
-    ) || "";
+    response.headers.get("content-type") || "";
 
   if (
     contentType.includes(
@@ -63,7 +57,7 @@ async function getResponseData(
       return {
         success: false,
         message:
-          "KRVE API returned invalid JSON.",
+          "KRVE Central API returned invalid JSON.",
       };
     }
   }
@@ -75,7 +69,7 @@ async function getResponseData(
     success: false,
     message:
       text ||
-      `KRVE API returned HTTP ${response.status}.`,
+      `KRVE Central API returned HTTP ${response.status}.`,
   };
 }
 
@@ -91,8 +85,7 @@ export async function POST(
 
     const applicationNumber =
       String(
-        body.applicationNumber ||
-          "",
+        body.applicationNumber || "",
       ).trim();
 
     const email =
@@ -115,7 +108,6 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-
           message:
             "Application number, registered email and valid 10-digit mobile number are required.",
         },
@@ -128,24 +120,10 @@ export async function POST(
     const apiUrl =
       getApiUrl();
 
-    /*
-      The KRVE Fashion website already has:
-
-      POST  /api/live-project/student
-        -> fetch student portal data
-
-      PATCH /api/live-project/student
-        -> submit/resubmit task work
-
-      So this portal proxy uses the same endpoint with the
-      correct HTTP method for each action.
-    */
-
-    const endpoint =
-      `${apiUrl}/api/live-project/student`;
-
     /* =====================================================
        LOGIN / REFRESH
+       Central API accepts POST:
+       /live-projects/student
     ===================================================== */
 
     if (
@@ -153,7 +131,7 @@ export async function POST(
     ) {
       const response =
         await fetch(
-          endpoint,
+          `${apiUrl}/live-projects/student`,
           {
             method: "POST",
 
@@ -188,7 +166,7 @@ export async function POST(
           {
             status:
               response.status,
-            endpoint,
+
             data,
           },
         );
@@ -199,16 +177,11 @@ export async function POST(
 
             message:
               data?.message ||
-              "Unable to verify student account.",
+              `KRVE API returned HTTP ${response.status}.`,
           },
           {
             status:
-              response.status >=
-                400 &&
-              response.status <
-                500
-                ? response.status
-                : 502,
+              response.status,
           },
         );
       }
@@ -243,8 +216,7 @@ export async function POST(
                   "revision_requested",
                 ].includes(
                   String(
-                    task?.status ||
-                      "",
+                    task?.status || "",
                   )
                     .trim()
                     .toLowerCase(),
@@ -255,8 +227,7 @@ export async function POST(
             tasks.filter(
               (task: any) =>
                 String(
-                  task?.status ||
-                    "",
+                  task?.status || "",
                 )
                   .trim()
                   .toLowerCase() ===
@@ -267,8 +238,7 @@ export async function POST(
             tasks.filter(
               (task: any) =>
                 String(
-                  task?.status ||
-                    "",
+                  task?.status || "",
                 )
                   .trim()
                   .toLowerCase() !==
@@ -311,7 +281,12 @@ export async function POST(
     }
 
     /* =====================================================
-       TASK SUBMISSION / RESUBMISSION
+       SUBMIT / RESUBMIT
+       Central API accepts BOTH POST and PATCH:
+       /live-projects/student/submit
+
+       We use POST here so the Student Portal itself can keep
+       using POST /api/portal for both actions.
     ===================================================== */
 
     if (
@@ -324,20 +299,17 @@ export async function POST(
 
       const submissionUrl =
         String(
-          body.submissionUrl ||
-            "",
+          body.submissionUrl || "",
         ).trim();
 
       const submissionSummary =
         String(
-          body.submissionSummary ||
-            "",
+          body.submissionSummary || "",
         ).trim();
 
       const studentRemarks =
         String(
-          body.studentRemarks ||
-            "",
+          body.studentRemarks || "",
         ).trim();
 
       if (!taskId) {
@@ -410,17 +382,11 @@ export async function POST(
         );
       }
 
-      /*
-        IMPORTANT:
-        Main website route.ts uses PATCH for the submission proxy.
-      */
-
       const response =
         await fetch(
-          endpoint,
+          `${apiUrl}/live-projects/student/submit`,
           {
-            method:
-              "PATCH",
+            method: "POST",
 
             headers: {
               "Content-Type":
@@ -435,6 +401,7 @@ export async function POST(
                 applicationNumber,
                 email,
                 phone,
+
                 taskId,
                 submissionUrl,
                 submissionSummary,
@@ -457,8 +424,9 @@ export async function POST(
           {
             status:
               response.status,
-            endpoint,
+
             taskId,
+
             data,
           },
         );
@@ -469,16 +437,11 @@ export async function POST(
 
             message:
               data?.message ||
-              "Unable to submit task.",
+              `KRVE API returned HTTP ${response.status}.`,
           },
           {
             status:
-              response.status >=
-                400 &&
-              response.status <
-                500
-                ? response.status
-                : 502,
+              response.status,
           },
         );
       }
@@ -486,6 +449,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: true,
+
           ...data,
         },
         {
