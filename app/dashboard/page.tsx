@@ -7,6 +7,8 @@ import {
 } from "react";
 
 import {
+  AlertCircle,
+  ArrowRight,
   Award,
   BarChart3,
   BookOpen,
@@ -14,6 +16,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Clock3,
   FileCheck2,
   FileText,
   LayoutDashboard,
@@ -59,6 +62,19 @@ type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
+};
+
+type DashboardStat = {
+  label: string;
+  value: string | number;
+  note: string;
+  href: string;
+  icon: LucideIcon;
+  tone:
+    | "blue"
+    | "purple"
+    | "green"
+    | "orange";
 };
 
 /* =========================================================
@@ -142,6 +158,33 @@ function extractPortalData(
   return null;
 }
 
+function normalizeStatus(
+  value?: string | null,
+) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function statusLabel(
+  value?: string | null,
+) {
+  const normalized =
+    String(value || "")
+      .replace(/_/g, " ")
+      .trim();
+
+  if (!normalized) {
+    return "Pending";
+  }
+
+  return normalized.replace(
+    /\b\w/g,
+    (letter) =>
+      letter.toUpperCase(),
+  );
+}
+
 function formatDate(
   value?: string | null,
 ) {
@@ -170,38 +213,34 @@ function formatDate(
   ).format(date);
 }
 
-function statusLabel(
-  value?: string | null,
+function formatRefreshTime(
+  value: Date | null,
 ) {
-  const normalized =
-    String(value || "")
-      .replace(/_/g, " ")
-      .trim();
-
-  if (!normalized) {
-    return "Pending";
+  if (!value) {
+    return "Not refreshed yet";
   }
 
-  return normalized.replace(
-    /\b\w/g,
-    (letter) =>
-      letter.toUpperCase(),
-  );
+  return new Intl.DateTimeFormat(
+    "en-IN",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    },
+  ).format(value);
 }
 
 function getStatusClass(
   status?: string | null,
 ) {
   const value =
-    String(status || "")
-      .trim()
-      .toLowerCase();
+    normalizeStatus(status);
 
   if (
     [
       "approved",
-      "active",
       "completed",
+      "active",
     ].includes(value)
   ) {
     return "success";
@@ -237,9 +276,7 @@ function getPriorityClass(
   priority?: string | null,
 ) {
   const value =
-    String(priority || "")
-      .trim()
-      .toLowerCase();
+    normalizeStatus(priority);
 
   if (value === "high") {
     return "high";
@@ -255,19 +292,30 @@ function getPriorityClass(
 function calculateTaskProgress(
   portal: StudentPortalData,
 ) {
-  if (
-    portal.summary.assignedTasks <=
-    0
-  ) {
+  const assigned =
+    Number(
+      portal.summary.assignedTasks ||
+        0,
+    );
+
+  const approved =
+    Number(
+      portal.summary.approvedTasks ||
+        0,
+    );
+
+  if (assigned <= 0) {
     return 0;
   }
 
   return Math.min(
     100,
-    Math.round(
-      (portal.summary.approvedTasks /
-        portal.summary.assignedTasks) *
-        100,
+    Math.max(
+      0,
+      Math.round(
+        (approved / assigned) *
+          100,
+      ),
     ),
   );
 }
@@ -276,7 +324,9 @@ function dueStatus(
   task: StudentTask,
 ) {
   if (
-    task.status === "approved"
+    normalizeStatus(
+      task.status,
+    ) === "approved"
   ) {
     return "Completed";
   }
@@ -296,24 +346,29 @@ function dueStatus(
     return "";
   }
 
+  due.setHours(
+    23,
+    59,
+    59,
+    999,
+  );
+
   const now =
     new Date();
 
-  const milliseconds =
-    due.getTime() -
-    now.getTime();
-
   const days =
     Math.ceil(
-      milliseconds /
+      (due.getTime() -
+        now.getTime()) /
         86400000,
     );
 
   if (days < 0) {
-    return `${Math.abs(
-      days,
-    )} day${
-      Math.abs(days) === 1
+    const overdue =
+      Math.abs(days);
+
+    return `${overdue} day${
+      overdue === 1
         ? ""
         : "s"
     } overdue`;
@@ -328,6 +383,32 @@ function dueStatus(
       ? ""
       : "s"
   } left`;
+}
+
+function isPendingTask(
+  task: StudentTask,
+) {
+  const status =
+    normalizeStatus(
+      task.status,
+    );
+
+  return ![
+    "approved",
+    "submitted",
+    "under_review",
+  ].includes(status);
+}
+
+function isRevisionTask(
+  task: StudentTask,
+) {
+  return (
+    normalizeStatus(
+      task.status,
+    ) ===
+    "revision_requested"
+  );
 }
 
 /* =========================================================
@@ -367,8 +448,16 @@ export default function DashboardPage() {
   ] =
     useState("");
 
+  const [
+    lastUpdated,
+    setLastUpdated,
+  ] =
+    useState<Date | null>(
+      null,
+    );
+
   /* =======================================================
-     LOAD SESSION
+     SESSION LOAD
   ======================================================= */
 
   useEffect(() => {
@@ -410,7 +499,11 @@ export default function DashboardPage() {
         parsed,
       );
 
-      refreshPortal(
+      setLastUpdated(
+        new Date(),
+      );
+
+      void refreshPortal(
         parsed.credentials,
         false,
       );
@@ -451,7 +544,8 @@ export default function DashboardPage() {
         await fetch(
           "/api/portal",
           {
-            method: "POST",
+            method:
+              "POST",
 
             headers: {
               "Content-Type":
@@ -495,7 +589,7 @@ export default function DashboardPage() {
 
       if (!portal) {
         throw new Error(
-          "Portal data was not returned.",
+          "Student portal data was not returned.",
         );
       }
 
@@ -509,6 +603,10 @@ export default function DashboardPage() {
         nextSession,
       );
 
+      setLastUpdated(
+        new Date(),
+      );
+
       window.localStorage.setItem(
         SESSION_KEY,
         JSON.stringify(
@@ -517,8 +615,7 @@ export default function DashboardPage() {
       );
     } catch (refreshError) {
       setError(
-        refreshError instanceof
-          Error
+        refreshError instanceof Error
           ? refreshError.message
           : "Unable to refresh portal.",
       );
@@ -538,8 +635,9 @@ export default function DashboardPage() {
       SESSION_KEY,
     );
 
-    window.location.href =
-      "/";
+    window.location.replace(
+      "/",
+    );
   }
 
   /* =======================================================
@@ -566,23 +664,22 @@ export default function DashboardPage() {
         return [];
       }
 
-      return [...portal.tasks]
-        .sort((a, b) => {
-          const aWeek =
-            Number(
-              a.weekNumber || 0,
-            );
-
-          const bWeek =
+      return [
+        ...portal.tasks,
+      ]
+        .sort(
+          (a, b) =>
             Number(
               b.weekNumber || 0,
-            );
-
-          return (
-            bWeek - aWeek
-          );
-        })
-        .slice(0, 5);
+            ) -
+            Number(
+              a.weekNumber || 0,
+            ),
+        )
+        .slice(
+          0,
+          5,
+        );
     }, [portal]);
 
   const pendingTasks =
@@ -592,21 +689,23 @@ export default function DashboardPage() {
       }
 
       return portal.tasks.filter(
-        (task) =>
-          ![
-            "approved",
-            "submitted",
-            "under_review",
-          ].includes(
-            String(
-              task.status,
-            ).toLowerCase(),
-          ),
+        isPendingTask,
+      );
+    }, [portal]);
+
+  const revisionTasks =
+    useMemo(() => {
+      if (!portal) {
+        return [];
+      }
+
+      return portal.tasks.filter(
+        isRevisionTask,
       );
     }, [portal]);
 
   /* =======================================================
-     INITIAL LOADING
+     LOADING
   ======================================================= */
 
   if (
@@ -621,7 +720,7 @@ export default function DashboardPage() {
         </div>
 
         <Loader2
-          size={28}
+          size={29}
           className="spin"
         />
 
@@ -634,7 +733,7 @@ export default function DashboardPage() {
           html,
           body {
             margin: 0;
-            background: #f5f7fb;
+            background: #f4f7fb;
             font-family:
               Arial,
               Helvetica,
@@ -647,21 +746,20 @@ export default function DashboardPage() {
             align-items: center;
             justify-content: center;
             flex-direction: column;
-            gap: 17px;
-            color: #325894;
+            gap: 16px;
+            color: #2455bd;
           }
 
           .loading-brand {
-            color: #0b2d70;
-            font-size: 24px;
+            color: #0b2c71;
+            font-size: 25px;
             font-weight: 900;
-            letter-spacing:
-              0.15em;
+            letter-spacing: 0.16em;
           }
 
           .portal-loading-screen
             span {
-            color: #8995a7;
+            color: #8793a5;
             font-size: 11px;
           }
 
@@ -688,15 +786,103 @@ export default function DashboardPage() {
     summary,
   } = portal;
 
+  const stats:
+    DashboardStat[] = [
+    {
+      label:
+        "Assigned Tasks",
+
+      value:
+        summary.assignedTasks,
+
+      note:
+        "All project assignments",
+
+      href:
+        "/tasks",
+
+      icon:
+        ClipboardList,
+
+      tone:
+        "blue",
+    },
+    {
+      label:
+        "Submitted",
+
+      value:
+        summary.submittedTasks,
+
+      note:
+        "Work sent for review",
+
+      href:
+        "/submissions",
+
+      icon:
+        Send,
+
+      tone:
+        "purple",
+    },
+    {
+      label:
+        "Approved",
+
+      value:
+        summary.approvedTasks,
+
+      note:
+        "Evaluator approved",
+
+      href:
+        "/feedback",
+
+      icon:
+        CheckCircle2,
+
+      tone:
+        "green",
+    },
+    {
+      label:
+        "Overall Score",
+
+      value:
+        student.evaluation
+          ?.totalScore ??
+        "—",
+
+      note:
+        "Out of 100",
+
+      href:
+        "/performance",
+
+      icon:
+        Target,
+
+      tone:
+        "orange",
+    },
+  ];
+
   return (
     <main className="portal-shell">
       {/* ===================================================
-          MOBILE TOP BAR
+          MOBILE HEADER
       =================================================== */}
 
       <header className="mobile-topbar">
-        <div className="mobile-wordmark">
-          KRVÉ
+        <div>
+          <strong>
+            KRVÉ
+          </strong>
+
+          <span>
+            STUDENT PORTAL
+          </span>
         </div>
 
         <button
@@ -753,7 +939,10 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="student-profile-mini">
+        <a
+          href="/profile"
+          className="student-profile-mini"
+        >
           <div className="student-initial">
             {student.fullName
               .charAt(0)
@@ -770,7 +959,7 @@ export default function DashboardPage() {
                 "Live Project Student"}
             </span>
           </div>
-        </div>
+        </a>
 
         <div className="sidebar-section-title">
           WORKSPACE
@@ -782,10 +971,6 @@ export default function DashboardPage() {
               const Icon =
                 item.icon;
 
-              const active =
-                item.href ===
-                "/dashboard";
-
               return (
                 <a
                   key={
@@ -795,16 +980,20 @@ export default function DashboardPage() {
                     item.href
                   }
                   className={
-                    active
+                    item.href ===
+                    "/dashboard"
                       ? "active"
                       : ""
+                  }
+                  onClick={() =>
+                    setMobileMenuOpen(
+                      false,
+                    )
                   }
                 >
                   <Icon
                     size={17}
-                    strokeWidth={
-                      2
-                    }
+                    strokeWidth={2}
                   />
 
                   <span>
@@ -824,7 +1013,11 @@ export default function DashboardPage() {
               APPLICATION ID
             </span>
 
-            <strong>
+            <strong
+              title={
+                student.applicationNumber
+              }
+            >
               {
                 student.applicationNumber
               }
@@ -861,7 +1054,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===================================================
-          MAIN CONTENT
+          MAIN
       =================================================== */}
 
       <section className="portal-main">
@@ -877,6 +1070,17 @@ export default function DashboardPage() {
             <h1>
               Student Dashboard
             </h1>
+
+            <span className="last-updated">
+              <Clock3
+                size={12}
+              />
+
+              Last updated:{" "}
+              {formatRefreshTime(
+                lastUpdated,
+              )}
+            </span>
           </div>
 
           <div className="dashboard-header-actions">
@@ -901,10 +1105,15 @@ export default function DashboardPage() {
                 }
               />
 
-              Refresh
+              {refreshing
+                ? "Refreshing"
+                : "Refresh"}
             </button>
 
-            <div className="header-user">
+            <a
+              href="/profile"
+              className="header-user"
+            >
               <div>
                 <span>
                   LOGGED IN AS
@@ -922,13 +1131,37 @@ export default function DashboardPage() {
                   .charAt(0)
                   .toUpperCase()}
               </div>
-            </div>
+            </a>
           </div>
         </header>
 
         {error && (
           <div className="dashboard-error">
-            {error}
+            <AlertCircle
+              size={17}
+            />
+
+            <div>
+              <strong>
+                Could not refresh
+                latest data.
+              </strong>
+
+              <span>
+                {error}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                refreshPortal(
+                  session.credentials,
+                )
+              }
+            >
+              Try Again
+            </button>
           </div>
         )}
 
@@ -964,9 +1197,30 @@ export default function DashboardPage() {
                   "Project allocation pending"}
               </span>
             </div>
+
+            <div className="welcome-actions">
+              <a href="/tasks">
+                <ClipboardList
+                  size={15}
+                />
+
+                View Tasks
+              </a>
+
+              <a href="/project">
+                Project Details
+
+                <ArrowRight
+                  size={15}
+                />
+              </a>
+            </div>
           </div>
 
-          <div className="welcome-status">
+          <a
+            href="/project"
+            className="welcome-status"
+          >
             <span>
               PROJECT STATUS
             </span>
@@ -981,108 +1235,72 @@ export default function DashboardPage() {
               {student.projectCode ||
                 "Project code pending"}
             </small>
-          </div>
+
+            <div>
+              Open Project
+              <ChevronRight
+                size={14}
+              />
+            </div>
+          </a>
         </section>
 
         {/* =================================================
-            STAT CARDS
+            STATS
         ================================================= */}
 
         <section className="dashboard-stats">
-          <article>
-            <div className="stat-icon blue">
-              <ClipboardList
-                size={20}
-              />
-            </div>
+          {stats.map(
+            (stat) => {
+              const Icon =
+                stat.icon;
 
-            <div>
-              <span>
-                Assigned Tasks
-              </span>
+              return (
+                <a
+                  key={
+                    stat.label
+                  }
+                  href={
+                    stat.href
+                  }
+                  className="dashboard-stat-card"
+                >
+                  <div
+                    className={`stat-icon ${stat.tone}`}
+                  >
+                    <Icon
+                      size={20}
+                    />
+                  </div>
 
-              <strong>
-                {
-                  summary.assignedTasks
-                }
-              </strong>
+                  <div className="stat-copy">
+                    <span>
+                      {
+                        stat.label
+                      }
+                    </span>
 
-              <small>
-                Total project
-                tasks
-              </small>
-            </div>
-          </article>
+                    <strong>
+                      {
+                        stat.value
+                      }
+                    </strong>
 
-          <article>
-            <div className="stat-icon purple">
-              <Send size={20} />
-            </div>
+                    <small>
+                      {
+                        stat.note
+                      }
+                    </small>
+                  </div>
 
-            <div>
-              <span>
-                Submitted
-              </span>
-
-              <strong>
-                {
-                  summary.submittedTasks
-                }
-              </strong>
-
-              <small>
-                Work submitted
-              </small>
-            </div>
-          </article>
-
-          <article>
-            <div className="stat-icon green">
-              <CheckCircle2
-                size={20}
-              />
-            </div>
-
-            <div>
-              <span>
-                Approved
-              </span>
-
-              <strong>
-                {
-                  summary.approvedTasks
-                }
-              </strong>
-
-              <small>
-                Evaluator approved
-              </small>
-            </div>
-          </article>
-
-          <article>
-            <div className="stat-icon orange">
-              <Target
-                size={20}
-              />
-            </div>
-
-            <div>
-              <span>
-                Overall Score
-              </span>
-
-              <strong>
-                {student.evaluation
-                  ?.totalScore ??
-                  "—"}
-              </strong>
-
-              <small>
-                Out of 100
-              </small>
-            </div>
-          </article>
+                  <ChevronRight
+                    size={16}
+                    className="stat-arrow"
+                  />
+                </a>
+              );
+            },
+          )}
         </section>
 
         {/* =================================================
@@ -1100,6 +1318,11 @@ export default function DashboardPage() {
                 <h3>
                   Task Completion
                 </h3>
+
+                <span>
+                  Based on approved
+                  project tasks.
+                </span>
               </div>
 
               <strong>
@@ -1116,7 +1339,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="progress-numbers">
-              <div>
+              <a href="/feedback">
                 <span>
                   Approved
                 </span>
@@ -1126,9 +1349,9 @@ export default function DashboardPage() {
                     summary.approvedTasks
                   }
                 </strong>
-              </div>
+              </a>
 
-              <div>
+              <a href="/submissions">
                 <span>
                   Submitted
                 </span>
@@ -1138,9 +1361,9 @@ export default function DashboardPage() {
                     summary.submittedTasks
                   }
                 </strong>
-              </div>
+              </a>
 
-              <div>
+              <a href="/tasks">
                 <span>
                   Pending
                 </span>
@@ -1150,8 +1373,19 @@ export default function DashboardPage() {
                     summary.pendingTasks
                   }
                 </strong>
-              </div>
+              </a>
             </div>
+
+            <a
+              href="/performance"
+              className="panel-link"
+            >
+              View Full Performance
+
+              <ChevronRight
+                size={15}
+              />
+            </a>
           </article>
 
           <article className="dashboard-panel project-panel">
@@ -1164,6 +1398,12 @@ export default function DashboardPage() {
                 <h3>
                   Current Allocation
                 </h3>
+
+                <span>
+                  Your official
+                  project
+                  information.
+                </span>
               </div>
 
               <BookOpen
@@ -1237,8 +1477,7 @@ export default function DashboardPage() {
               href="/project"
               className="panel-link"
             >
-              View Project
-              Details
+              View Project Details
 
               <ChevronRight
                 size={15}
@@ -1248,7 +1487,63 @@ export default function DashboardPage() {
         </section>
 
         {/* =================================================
-            TASKS
+            ALERTS
+        ================================================= */}
+
+        {(revisionTasks.length >
+          0 ||
+          pendingTasks.length >
+            0) && (
+          <section className="attention-panel">
+            <div className="attention-icon">
+              <AlertCircle
+                size={22}
+              />
+            </div>
+
+            <div>
+              <p>
+                NEEDS YOUR
+                ATTENTION
+              </p>
+
+              <h3>
+                {revisionTasks.length >
+                0
+                  ? `${revisionTasks.length} revision request${
+                      revisionTasks.length ===
+                      1
+                        ? ""
+                        : "s"
+                    } pending`
+                  : `${pendingTasks.length} task${
+                      pendingTasks.length ===
+                      1
+                        ? ""
+                        : "s"
+                    } pending`}
+              </h3>
+
+              <span>
+                {revisionTasks.length >
+                0
+                  ? "Open Weekly Tasks, review evaluator feedback and submit the updated work."
+                  : "Review your pending assignments and complete them before their deadlines."}
+              </span>
+            </div>
+
+            <a href="/tasks">
+              Open Tasks
+
+              <ChevronRight
+                size={15}
+              />
+            </a>
+          </section>
+        )}
+
+        {/* =================================================
+            RECENT TASKS
         ================================================= */}
 
         <section className="dashboard-panel tasks-panel">
@@ -1263,9 +1558,9 @@ export default function DashboardPage() {
               </h3>
 
               <span>
-                Tasks assigned by
-                your KRVÉ project
-                coordinator.
+                Latest project
+                assignments from
+                your project team.
               </span>
             </div>
 
@@ -1274,6 +1569,7 @@ export default function DashboardPage() {
               className="view-all-link"
             >
               View All Tasks
+
               <ChevronRight
                 size={15}
               />
@@ -1285,7 +1581,7 @@ export default function DashboardPage() {
             <div className="empty-task-state">
               <div>
                 <ClipboardList
-                  size={25}
+                  size={26}
                 />
               </div>
 
@@ -1295,12 +1591,30 @@ export default function DashboardPage() {
               </h4>
 
               <p>
-                Your weekly
-                assignments will
-                appear here once
-                they are assigned
-                from KEOS.
+                Once your project
+                team assigns a
+                weekly task, it
+                will automatically
+                appear here.
               </p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  refreshPortal(
+                    session.credentials,
+                  )
+                }
+                disabled={
+                  refreshing
+                }
+              >
+                <RefreshCcw
+                  size={14}
+                />
+
+                Check Again
+              </button>
             </div>
           ) : (
             <div className="dashboard-task-table">
@@ -1330,8 +1644,11 @@ export default function DashboardPage() {
 
               {recentTasks.map(
                 (task) => (
-                  <div
-                    key={task.id}
+                  <a
+                    key={
+                      task.id
+                    }
+                    href="/tasks"
                     className="task-table-row"
                   >
                     <div className="week-number">
@@ -1347,7 +1664,17 @@ export default function DashboardPage() {
                         }
                       </strong>
 
-                      <span>
+                      <span
+                        className={
+                          dueStatus(
+                            task,
+                          ).includes(
+                            "overdue",
+                          )
+                            ? "overdue"
+                            : ""
+                        }
+                      >
                         {dueStatus(
                           task,
                         )}
@@ -1385,18 +1712,12 @@ export default function DashboardPage() {
                       </span>
                     </div>
 
-                    <div>
-                      <a
-                        href="/tasks"
-                        className="task-open"
-                        aria-label="Open task"
-                      >
-                        <ChevronRight
-                          size={16}
-                        />
-                      </a>
+                    <div className="task-open">
+                      <ChevronRight
+                        size={16}
+                      />
                     </div>
-                  </div>
+                  </a>
                 ),
               )}
             </div>
@@ -1404,11 +1725,27 @@ export default function DashboardPage() {
         </section>
 
         {/* =================================================
-            BOTTOM CARDS
+            ACTION CENTER
         ================================================= */}
 
+        <section className="section-heading">
+          <div>
+            <p>
+              ACTION CENTER
+            </p>
+
+            <h3>
+              Continue Your
+              Project
+            </h3>
+          </div>
+        </section>
+
         <section className="dashboard-bottom-grid">
-          <article className="dashboard-panel action-panel">
+          <a
+            href="/tasks"
+            className="dashboard-panel action-panel"
+          >
             <div className="action-icon pending">
               <FileText
                 size={21}
@@ -1433,23 +1770,26 @@ export default function DashboardPage() {
               </h3>
 
               <p>
-                Review pending
-                assignments and
-                submit your work
-                before the
-                deadline.
+                Open assignments,
+                check deadlines
+                and submit your
+                project work.
               </p>
 
-              <a href="/tasks">
+              <strong className="action-link">
                 Go to Tasks
+
                 <ChevronRight
                   size={14}
                 />
-              </a>
+              </strong>
             </div>
-          </article>
+          </a>
 
-          <article className="dashboard-panel action-panel">
+          <a
+            href="/performance"
+            className="dashboard-panel action-panel"
+          >
             <div className="action-icon evaluation">
               <BarChart3
                 size={21}
@@ -1464,7 +1804,8 @@ export default function DashboardPage() {
               <h3>
                 {student.evaluation
                   ? `Grade ${
-                      student.evaluation
+                      student
+                        .evaluation
                         .grade ||
                       "Published"
                     }`
@@ -1475,20 +1816,25 @@ export default function DashboardPage() {
                 Track task quality,
                 timeliness,
                 initiative,
-                teamwork and
-                business impact.
+                teamwork,
+                business impact
+                and overall score.
               </p>
 
-              <a href="/performance">
+              <strong className="action-link">
                 View Performance
+
                 <ChevronRight
                   size={14}
                 />
-              </a>
+              </strong>
             </div>
-          </article>
+          </a>
 
-          <article className="dashboard-panel action-panel">
+          <a
+            href="/certificate"
+            className="dashboard-panel action-panel"
+          >
             <div className="action-icon certificate">
               <Award
                 size={21}
@@ -1507,26 +1853,117 @@ export default function DashboardPage() {
               </h3>
 
               <p>
-                Your verified
-                certificate will
-                become available
-                after successful
-                completion.
+                View certificate
+                eligibility,
+                completion status
+                and Certificate ID.
               </p>
 
-              <a href="/certificate">
+              <strong className="action-link">
                 View Certificate
+
                 <ChevronRight
                   size={14}
                 />
-              </a>
+              </strong>
             </div>
-          </article>
+          </a>
+        </section>
+
+        {/* =================================================
+            QUICK LINKS
+        ================================================= */}
+
+        <section className="quick-links">
+          <a href="/project">
+            <BookOpen
+              size={18}
+            />
+
+            <div>
+              <strong>
+                Project Details
+              </strong>
+
+              <span>
+                Allocation,
+                coordinator &
+                dates
+              </span>
+            </div>
+
+            <ChevronRight
+              size={16}
+            />
+          </a>
+
+          <a href="/submissions">
+            <FileCheck2
+              size={18}
+            />
+
+            <div>
+              <strong>
+                Submission History
+              </strong>
+
+              <span>
+                Submitted work &
+                status
+              </span>
+            </div>
+
+            <ChevronRight
+              size={16}
+            />
+          </a>
+
+          <a href="/feedback">
+            <MessageSquareText
+              size={18}
+            />
+
+            <div>
+              <strong>
+                Feedback
+              </strong>
+
+              <span>
+                Comments &
+                revisions
+              </span>
+            </div>
+
+            <ChevronRight
+              size={16}
+            />
+          </a>
+
+          <a href="/profile">
+            <UserRound
+              size={18}
+            />
+
+            <div>
+              <strong>
+                My Profile
+              </strong>
+
+              <span>
+                Student &
+                project record
+              </span>
+            </div>
+
+            <ChevronRight
+              size={16}
+            />
+          </a>
         </section>
       </section>
 
       {/* ===================================================
-          STYLES
+          CSS
       =================================================== */}
 
       <style jsx global>{`
@@ -1539,53 +1976,43 @@ export default function DashboardPage() {
           margin: 0;
           min-height: 100%;
           background: #f4f7fb;
-          color: #111b30;
+          color: #142039;
           font-family:
             Arial,
             Helvetica,
             sans-serif;
         }
 
-        button,
-        input,
-        textarea {
-          font: inherit;
-        }
-
-        button {
-          cursor: pointer;
-        }
-
         a {
           color: inherit;
         }
 
-        .portal-shell {
-          min-height: 100vh;
-          background: #f4f7fb;
+        button {
+          font: inherit;
+          cursor: pointer;
         }
 
-        /* ===============================================
-           SIDEBAR
-        =============================================== */
+        button:disabled {
+          cursor: not-allowed;
+        }
+
+        .portal-shell {
+          min-height: 100vh;
+        }
+
+        /* SIDEBAR */
 
         .portal-sidebar {
           position: fixed;
           inset: 0 auto 0 0;
           z-index: 500;
-
           display: flex;
-
           width: 265px;
           height: 100vh;
-
           flex-direction: column;
-
           border-right:
             1px solid #dfe5ed;
-
-          background: #ffffff;
-
+          background: #fff;
           box-shadow:
             4px 0 25px
             rgba(
@@ -1598,199 +2025,155 @@ export default function DashboardPage() {
 
         .sidebar-logo-area {
           display: flex;
-
           min-height: 84px;
-
           align-items: center;
-
           gap: 12px;
-
           padding: 0 22px;
-
           border-bottom:
             1px solid #edf1f5;
         }
 
         .portal-logo {
           display: grid;
-
           width: 44px;
           height: 44px;
-
           flex: 0 0 44px;
-
           place-items: center;
-
           border-radius: 12px;
-
           background:
             linear-gradient(
               135deg,
               #07183a,
               #123b8c
             );
-
-          color: #ffffff;
-
+          color: #fff;
           font-size: 16px;
           font-weight: 900;
         }
 
-        .sidebar-logo-area strong {
+        .sidebar-logo-area
+          strong {
           display: block;
-
           color: #11203b;
-
           font-size: 16px;
-
           letter-spacing: 0.08em;
         }
 
-        .sidebar-logo-area span {
+        .sidebar-logo-area
+          span {
           display: block;
-
           margin-top: 3px;
-
           color: #939fb0;
-
           font-size: 7px;
           font-weight: 800;
-
           letter-spacing: 0.16em;
         }
 
         .sidebar-mobile-close {
           display: none;
-
           margin-left: auto;
-
           border: 0;
-
           background: transparent;
-
           color: #56667e;
         }
 
         .student-profile-mini {
           display: flex;
-
           align-items: center;
-
           gap: 11px;
-
           margin: 17px;
-
           padding: 13px;
-
           border:
             1px solid #e4eaf2;
-
           border-radius: 13px;
-
           background: #f8faff;
+          text-decoration: none;
+          transition:
+            border-color
+              0.18s ease,
+            transform
+              0.18s ease;
+        }
+
+        .student-profile-mini:hover {
+          transform:
+            translateY(-1px);
+          border-color:
+            #cbd8ec;
         }
 
         .student-initial,
         .header-avatar {
           display: grid;
-
           width: 38px;
           height: 38px;
-
           flex: 0 0 38px;
-
           place-items: center;
-
           border-radius: 10px;
-
           background: #0b2c71;
-
-          color: #ffffff;
-
+          color: #fff;
           font-size: 13px;
           font-weight: 900;
         }
 
-        .student-profile-mini strong {
+        .student-profile-mini
+          strong {
           display: block;
-
           max-width: 155px;
-
           overflow: hidden;
-
           color: #21304a;
-
           font-size: 11px;
-
-          text-overflow: ellipsis;
-
+          text-overflow:
+            ellipsis;
           white-space: nowrap;
         }
 
-        .student-profile-mini span {
+        .student-profile-mini
+          span {
           display: block;
-
           margin-top: 4px;
-
           color: #8c98a9;
-
           font-size: 9px;
         }
 
         .sidebar-section-title {
           padding:
             7px 27px 10px;
-
           color: #a4adba;
-
           font-size: 7px;
           font-weight: 900;
-
           letter-spacing: 0.16em;
         }
 
         .sidebar-nav {
           display: flex;
-
           flex: 1;
-
           flex-direction: column;
-
           gap: 4px;
-
           overflow-y: auto;
-
           padding: 0 13px 15px;
         }
 
         .sidebar-nav a {
           display: flex;
-
           min-height: 45px;
-
           align-items: center;
-
           gap: 11px;
-
           padding: 0 14px;
-
           border-radius: 10px;
-
           color: #627086;
-
           font-size: 10px;
           font-weight: 700;
-
           text-decoration: none;
-
           transition:
-            background 0.18s ease,
-            color 0.18s ease;
+            background
+              0.18s ease,
+            color
+              0.18s ease;
         }
 
         .sidebar-nav a:hover {
           background: #f3f6fb;
-
           color: #244680;
         }
 
@@ -1801,9 +2184,7 @@ export default function DashboardPage() {
               #09172f,
               #102e67
             );
-
-          color: #ffffff;
-
+          color: #fff;
           box-shadow:
             0 8px 22px
             rgba(
@@ -1816,145 +2197,128 @@ export default function DashboardPage() {
 
         .sidebar-bottom {
           padding: 16px;
-
           border-top:
             1px solid #edf1f5;
         }
 
-        .application-info span {
+        .application-info
+          span {
           display: block;
-
           color: #9ba5b4;
-
           font-size: 7px;
           font-weight: 900;
-
           letter-spacing: 0.11em;
         }
 
-        .application-info strong {
+        .application-info
+          strong {
           display: block;
-
           margin-top: 5px;
-
           overflow: hidden;
-
           color: #47556c;
-
           font-size: 9px;
-
-          text-overflow: ellipsis;
-
+          text-overflow:
+            ellipsis;
           white-space: nowrap;
         }
 
         .logout-button {
           display: flex;
-
           width: 100%;
           height: 40px;
-
           align-items: center;
-
           gap: 9px;
-
           margin-top: 13px;
-
           padding: 0 12px;
-
           border:
             1px solid #dfe5ed;
-
           border-radius: 9px;
-
-          background: #ffffff;
-
+          background: #fff;
           color: #66748a;
-
           font-size: 9px;
           font-weight: 700;
         }
 
-        /* ===============================================
-           MAIN
-        =============================================== */
+        .logout-button:hover {
+          border-color:
+            #f1c8cd;
+          background: #fff7f7;
+          color: #b43c48;
+        }
+
+        /* MAIN */
 
         .portal-main {
           min-height: 100vh;
-
           margin-left: 265px;
-
           padding:
-            0 36px 50px;
+            0 36px 55px;
         }
 
         .dashboard-header {
           display: flex;
-
-          min-height: 102px;
-
+          min-height: 105px;
           align-items: center;
-
           justify-content:
             space-between;
-
           gap: 24px;
-
           border-bottom:
             1px solid #dfe5ed;
         }
 
-        .dashboard-header > div:first-child > p {
+        .dashboard-header
+          > div:first-child
+          > p {
           margin: 0;
-
           color: #2959d1;
-
           font-size: 8px;
           font-weight: 900;
-
           letter-spacing: 0.17em;
         }
 
         .dashboard-header h1 {
-          margin: 7px 0 0;
-
+          margin:
+            7px 0 0;
           color: #132038;
-
           font-size: 25px;
+          letter-spacing:
+            -0.025em;
+        }
 
-          letter-spacing: -0.025em;
+        .last-updated {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          margin-top: 8px;
+          color: #98a3b3;
+          font-size: 8px;
         }
 
         .dashboard-header-actions {
           display: flex;
-
           align-items: center;
-
           gap: 20px;
         }
 
         .refresh-button {
           display: flex;
-
           height: 40px;
-
           align-items: center;
-
           gap: 7px;
-
           padding: 0 13px;
-
           border:
             1px solid #dce3ed;
-
           border-radius: 9px;
-
-          background: #ffffff;
-
+          background: #fff;
           color: #52637b;
-
           font-size: 9px;
           font-weight: 800;
+        }
+
+        .refresh-button:hover {
+          border-color:
+            #bdcbe0;
+          background: #f9fbff;
         }
 
         .refresh-button:disabled {
@@ -1963,74 +2327,83 @@ export default function DashboardPage() {
 
         .header-user {
           display: flex;
-
           align-items: center;
-
           gap: 10px;
+          text-decoration: none;
         }
 
-        .header-user > div:first-child {
+        .header-user
+          > div:first-child {
           text-align: right;
         }
 
         .header-user span {
           color: #9aa4b3;
-
           font-size: 7px;
           font-weight: 700;
         }
 
         .header-user strong {
           display: block;
-
           margin-top: 3px;
-
           color: #344158;
-
           font-size: 10px;
         }
 
         .dashboard-error {
+          display: grid;
+          grid-template-columns:
+            auto 1fr auto;
+          align-items: center;
+          gap: 11px;
           margin-top: 18px;
-
-          padding: 12px 14px;
-
+          padding: 13px 14px;
           border:
             1px solid #ffd2d6;
-
-          border-radius: 10px;
-
+          border-radius: 11px;
           background: #fff4f5;
-
           color: #b42c38;
-
-          font-size: 10px;
         }
 
-        /* ===============================================
-           WELCOME
-        =============================================== */
+        .dashboard-error
+          strong {
+          display: block;
+          font-size: 9px;
+        }
+
+        .dashboard-error
+          span {
+          display: block;
+          margin-top: 3px;
+          font-size: 9px;
+        }
+
+        .dashboard-error
+          button {
+          height: 32px;
+          padding: 0 11px;
+          border:
+            1px solid #efbbc1;
+          border-radius: 7px;
+          background: #fff;
+          color: #aa3340;
+          font-size: 8px;
+          font-weight: 800;
+        }
+
+        /* WELCOME */
 
         .welcome-card {
           display: flex;
-
-          min-height: 190px;
-
+          min-height: 205px;
           align-items: center;
-
           justify-content:
             space-between;
-
           gap: 30px;
-
           margin-top: 27px;
-
-          padding: 35px 39px;
-
+          padding: 36px 39px;
           overflow: hidden;
-
           border-radius: 20px;
-
           background:
             radial-gradient(
               circle at 88%
@@ -2049,9 +2422,7 @@ export default function DashboardPage() {
               #061936,
               #0c3279
             );
-
-          color: #ffffff;
-
+          color: #fff;
           box-shadow:
             0 18px 48px
             rgba(
@@ -2064,36 +2435,31 @@ export default function DashboardPage() {
 
         .welcome-copy > p {
           margin: 0;
-
           color: #9db8fa;
-
           font-size: 8px;
           font-weight: 900;
-
           letter-spacing: 0.18em;
         }
 
         .welcome-copy h2 {
-          margin: 10px 0 9px;
-
+          margin:
+            10px 0 9px;
           font-size: 29px;
-
-          letter-spacing: -0.03em;
+          letter-spacing:
+            -0.03em;
         }
 
-        .welcome-copy h2 span {
+        .welcome-copy
+          h2
+          span {
           color: #b4c9ff;
         }
 
         .welcome-meta {
           display: flex;
-
           align-items: center;
-
           flex-wrap: wrap;
-
           gap: 10px;
-
           color:
             rgba(
               255,
@@ -2101,16 +2467,13 @@ export default function DashboardPage() {
               255,
               0.62
             );
-
           font-size: 10px;
         }
 
         .welcome-meta i {
           width: 4px;
           height: 4px;
-
           border-radius: 50%;
-
           background:
             rgba(
               255,
@@ -2120,11 +2483,50 @@ export default function DashboardPage() {
             );
         }
 
+        .welcome-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 20px;
+        }
+
+        .welcome-actions a {
+          display: inline-flex;
+          min-height: 39px;
+          align-items: center;
+          gap: 7px;
+          padding: 0 13px;
+          border:
+            1px solid
+            rgba(
+              255,
+              255,
+              255,
+              0.18
+            );
+          border-radius: 9px;
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.08
+            );
+          color: #fff;
+          font-size: 9px;
+          font-weight: 800;
+          text-decoration: none;
+        }
+
+        .welcome-actions
+          a:first-child {
+          background: #fff;
+          color: #143d8e;
+        }
+
         .welcome-status {
-          min-width: 230px;
-
+          min-width: 235px;
           padding: 21px 22px;
-
           border:
             1px solid
             rgba(
@@ -2133,9 +2535,7 @@ export default function DashboardPage() {
               255,
               0.14
             );
-
           border-radius: 14px;
-
           background:
             rgba(
               255,
@@ -2143,29 +2543,48 @@ export default function DashboardPage() {
               255,
               0.07
             );
-
+          color: #fff;
+          text-decoration: none;
           backdrop-filter:
             blur(10px);
+          transition:
+            transform
+              0.18s ease,
+            background
+              0.18s ease;
         }
 
-        .welcome-status span {
-          color: #a9bee9;
+        .welcome-status:hover {
+          transform:
+            translateY(-2px);
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.11
+            );
+        }
 
+        .welcome-status
+          > span {
+          color: #a9bee9;
           font-size: 7px;
           font-weight: 900;
-
           letter-spacing: 0.13em;
         }
 
-        .welcome-status strong {
+        .welcome-status
+          > strong {
           display: block;
-
-          margin: 8px 0 5px;
-
+          margin:
+            8px 0 5px;
           font-size: 18px;
         }
 
-        .welcome-status small {
+        .welcome-status
+          > small {
+          display: block;
           color:
             rgba(
               255,
@@ -2173,46 +2592,45 @@ export default function DashboardPage() {
               255,
               0.5
             );
-
           font-size: 9px;
         }
 
-        /* ===============================================
-           STATS
-        =============================================== */
+        .welcome-status
+          > div {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          margin-top: 20px;
+          color: #c6d5f7;
+          font-size: 8px;
+          font-weight: 800;
+        }
+
+        /* STATS */
 
         .dashboard-stats {
           display: grid;
-
           grid-template-columns:
             repeat(
               4,
               minmax(0, 1fr)
             );
-
           gap: 15px;
-
           margin-top: 17px;
         }
 
-        .dashboard-stats article {
+        .dashboard-stat-card {
+          position: relative;
           display: flex;
-
           min-height: 130px;
-
-          align-items: flex-start;
-
+          align-items:
+            flex-start;
           gap: 14px;
-
           padding: 20px;
-
           border:
             1px solid #dfe5ed;
-
           border-radius: 15px;
-
-          background: #ffffff;
-
+          background: #fff;
           box-shadow:
             0 6px 21px
             rgba(
@@ -2221,18 +2639,37 @@ export default function DashboardPage() {
               88,
               0.04
             );
+          text-decoration: none;
+          transition:
+            transform
+              0.18s ease,
+            border-color
+              0.18s ease,
+            box-shadow
+              0.18s ease;
+        }
+
+        .dashboard-stat-card:hover {
+          transform:
+            translateY(-2px);
+          border-color:
+            #cbd7e8;
+          box-shadow:
+            0 11px 28px
+            rgba(
+              19,
+              46,
+              88,
+              0.08
+            );
         }
 
         .stat-icon {
           display: grid;
-
           width: 40px;
           height: 40px;
-
           flex: 0 0 40px;
-
           place-items: center;
-
           border-radius: 11px;
         }
 
@@ -2256,57 +2693,49 @@ export default function DashboardPage() {
           color: #d87b1d;
         }
 
-        .dashboard-stats article > div:last-child > span {
+        .stat-copy > span {
           color: #818c9f;
-
           font-size: 9px;
           font-weight: 700;
         }
 
-        .dashboard-stats article > div:last-child > strong {
+        .stat-copy > strong {
           display: block;
-
           margin-top: 5px;
-
           color: #142039;
-
           font-size: 26px;
         }
 
-        .dashboard-stats article small {
+        .stat-copy > small {
           display: block;
-
           margin-top: 5px;
-
           color: #a1aab8;
-
           font-size: 8px;
         }
 
-        /* ===============================================
-           PANELS
-        =============================================== */
+        .stat-arrow {
+          position: absolute;
+          right: 14px;
+          bottom: 14px;
+          color: #a0aec1;
+        }
+
+        /* PANELS */
 
         .dashboard-grid {
           display: grid;
-
           grid-template-columns:
             minmax(0, 0.8fr)
             minmax(0, 1.2fr);
-
           gap: 16px;
-
           margin-top: 17px;
         }
 
         .dashboard-panel {
           border:
             1px solid #dfe5ed;
-
           border-radius: 16px;
-
-          background: #ffffff;
-
+          background: #fff;
           box-shadow:
             0 6px 22px
             rgba(
@@ -2318,217 +2747,236 @@ export default function DashboardPage() {
         }
 
         .progress-panel,
-        .project-panel {
+        .project-panel,
+        .tasks-panel {
           padding: 24px;
         }
 
         .panel-title {
           display: flex;
-
-          align-items: flex-start;
-
+          align-items:
+            flex-start;
           justify-content:
             space-between;
-
           gap: 20px;
         }
 
-        .panel-title p {
+        .panel-title p,
+        .section-heading p,
+        .attention-panel p {
           margin: 0;
-
           color: #2b5acf;
-
           font-size: 7px;
           font-weight: 900;
-
           letter-spacing: 0.15em;
         }
 
-        .panel-title h3 {
-          margin: 7px 0 0;
-
+        .panel-title h3,
+        .section-heading h3 {
+          margin:
+            7px 0 0;
           color: #17243c;
-
           font-size: 17px;
         }
 
-        .panel-title > div > span {
+        .panel-title
+          > div
+          > span {
           display: block;
-
           margin-top: 6px;
-
           color: #8b96a7;
-
           font-size: 9px;
         }
 
-        .panel-title > strong {
+        .panel-title
+          > strong {
           color: #2258d2;
-
           font-size: 24px;
         }
 
         .large-progress-track {
           height: 9px;
-
           margin-top: 31px;
-
           overflow: hidden;
-
           border-radius: 50px;
-
           background: #edf1f6;
         }
 
-        .large-progress-track div {
+        .large-progress-track
+          div {
           height: 100%;
-
           border-radius: inherit;
-
           background:
             linear-gradient(
               90deg,
               #174fd0,
               #6990ff
             );
+          transition:
+            width 0.35s ease;
         }
 
         .progress-numbers {
           display: grid;
-
           grid-template-columns:
             repeat(
               3,
               1fr
             );
-
           gap: 10px;
-
           margin-top: 22px;
         }
 
-        .progress-numbers > div {
+        .progress-numbers a {
           padding: 13px;
-
           border-radius: 10px;
-
           background: #f7f9fc;
+          text-decoration: none;
+          transition:
+            background
+              0.18s ease;
+        }
+
+        .progress-numbers
+          a:hover {
+          background: #edf3ff;
         }
 
         .progress-numbers span {
           color: #929daf;
-
           font-size: 8px;
         }
 
-        .progress-numbers strong {
+        .progress-numbers
+          strong {
           display: block;
-
           margin-top: 5px;
-
           color: #33425a;
-
           font-size: 17px;
         }
 
         .project-info-grid {
           display: grid;
-
           grid-template-columns:
             1fr 1fr;
-
           gap: 10px;
-
           margin-top: 19px;
         }
 
-        .project-info-grid > div {
+        .project-info-grid
+          > div {
           padding: 12px;
-
           border:
             1px solid #e8ecf2;
-
           border-radius: 9px;
-
           background: #fafcff;
         }
 
-        .project-info-grid > div.wide {
+        .project-info-grid
+          > div.wide {
           grid-column:
             1 / -1;
         }
 
-        .project-info-grid span {
+        .project-info-grid
+          span {
           display: block;
-
           color: #97a2b3;
-
           font-size: 7px;
           font-weight: 800;
-
-          text-transform: uppercase;
+          text-transform:
+            uppercase;
         }
 
-        .project-info-grid strong {
+        .project-info-grid
+          strong {
           display: block;
-
           margin-top: 5px;
-
           color: #37465d;
-
           font-size: 9px;
-          line-height: 1.4;
+          line-height: 1.5;
+        }
+
+        .panel-link,
+        .view-all-link {
+          display: flex;
+          width: fit-content;
+          align-items: center;
+          gap: 4px;
+          color: #2458cd;
+          font-size: 9px;
+          font-weight: 800;
+          text-decoration: none;
         }
 
         .panel-link {
-          display: flex;
-
-          width: fit-content;
-
-          align-items: center;
-
-          gap: 4px;
-
           margin-top: 17px;
+        }
 
-          color: #2458cd;
+        /* ATTENTION */
 
+        .attention-panel {
+          display: grid;
+          grid-template-columns:
+            auto 1fr auto;
+          align-items: center;
+          gap: 15px;
+          margin-top: 17px;
+          padding: 18px 20px;
+          border:
+            1px solid #f1d29b;
+          border-radius: 14px;
+          background: #fffaf1;
+        }
+
+        .attention-icon {
+          display: grid;
+          width: 43px;
+          height: 43px;
+          place-items: center;
+          border-radius: 11px;
+          background: #fff0d5;
+          color: #b87315;
+        }
+
+        .attention-panel h3 {
+          margin:
+            5px 0 4px;
+          color: #5b4630;
+          font-size: 13px;
+        }
+
+        .attention-panel
+          > div:nth-child(2)
+          > span {
+          color: #8d755b;
           font-size: 9px;
-          font-weight: 800;
+          line-height: 1.5;
+        }
 
+        .attention-panel a {
+          display: inline-flex;
+          min-height: 37px;
+          align-items: center;
+          gap: 5px;
+          padding: 0 12px;
+          border-radius: 8px;
+          background: #b87518;
+          color: #fff;
+          font-size: 8px;
+          font-weight: 800;
           text-decoration: none;
         }
 
-        /* ===============================================
-           TASKS
-        =============================================== */
+        /* TASKS */
 
         .tasks-panel {
           margin-top: 17px;
-
-          padding: 24px;
-        }
-
-        .view-all-link {
-          display: flex;
-
-          align-items: center;
-
-          gap: 4px;
-
-          color: #2659ce;
-
-          font-size: 9px;
-          font-weight: 800;
-
-          text-decoration: none;
         }
 
         .dashboard-task-table {
           margin-top: 21px;
-
           overflow-x: auto;
-
           border-top:
             1px solid #e9edf3;
         }
@@ -2536,96 +2984,87 @@ export default function DashboardPage() {
         .task-table-head,
         .task-table-row {
           display: grid;
-
           grid-template-columns:
             65px
-            minmax(210px, 1.5fr)
+            minmax(
+              210px,
+              1.5fr
+            )
             110px
             120px
             130px
             35px;
-
           align-items: center;
-
           gap: 13px;
         }
 
         .task-table-head {
           min-width: 820px;
-
           padding: 12px 8px;
-
           color: #9aa4b4;
-
           font-size: 7px;
           font-weight: 900;
-
           letter-spacing: 0.08em;
         }
 
         .task-table-row {
           min-width: 820px;
-
-          min-height: 68px;
-
+          min-height: 70px;
           padding: 10px 8px;
-
           border-top:
             1px solid #edf0f5;
+          text-decoration: none;
+          transition:
+            background
+              0.18s ease;
+        }
+
+        .task-table-row:hover {
+          background: #fafcff;
         }
 
         .week-number {
           display: grid;
-
           width: 38px;
           height: 38px;
-
           place-items: center;
-
           border-radius: 9px;
-
           background: #eff4ff;
-
           color: #2a5bd4;
-
           font-size: 11px;
           font-weight: 900;
         }
 
         .task-name strong {
           display: block;
-
           color: #26354c;
-
           font-size: 10px;
         }
 
         .task-name span {
           display: block;
-
           margin-top: 4px;
-
           color: #929dae;
-
           font-size: 8px;
+        }
+
+        .task-name
+          span.overdue {
+          color: #c44652;
+          font-weight: 800;
         }
 
         .priority,
         .task-status {
           display: inline-flex;
-
           width: fit-content;
-
           align-items: center;
-
           padding: 6px 8px;
-
           border-radius: 50px;
-
           font-size: 7px;
           font-weight: 900;
-
-          text-transform: uppercase;
+          text-transform:
+            uppercase;
         }
 
         .priority.high {
@@ -2670,113 +3109,114 @@ export default function DashboardPage() {
 
         .table-date {
           color: #657489;
-
           font-size: 9px;
         }
 
         .task-open {
           display: grid;
-
           width: 30px;
           height: 30px;
-
           place-items: center;
-
           border:
             1px solid #dee5ee;
-
           border-radius: 8px;
-
           color: #526a98;
-
-          text-decoration: none;
         }
 
         .empty-task-state {
           display: flex;
-
-          min-height: 220px;
-
+          min-height: 235px;
           align-items: center;
-
           justify-content: center;
-
           flex-direction: column;
-
           text-align: center;
         }
 
-        .empty-task-state > div {
+        .empty-task-state
+          > div {
           display: grid;
-
           width: 52px;
           height: 52px;
-
           place-items: center;
-
           border-radius: 13px;
-
           background: #edf3fc;
-
           color: #5874a8;
         }
 
         .empty-task-state h4 {
-          margin: 14px 0 6px;
-
+          margin:
+            14px 0 6px;
           font-size: 13px;
         }
 
         .empty-task-state p {
           max-width: 430px;
-
           margin: 0;
-
           color: #8a95a6;
-
           font-size: 9px;
-
           line-height: 1.6;
         }
 
-        /* ===============================================
-           BOTTOM
-        =============================================== */
+        .empty-task-state
+          button {
+          display: flex;
+          min-height: 36px;
+          align-items: center;
+          gap: 6px;
+          margin-top: 15px;
+          padding: 0 12px;
+          border:
+            1px solid #d8e0ec;
+          border-radius: 8px;
+          background: #fff;
+          color: #526b99;
+          font-size: 8px;
+          font-weight: 800;
+        }
+
+        /* ACTION CENTER */
+
+        .section-heading {
+          margin-top: 24px;
+        }
 
         .dashboard-bottom-grid {
           display: grid;
-
           grid-template-columns:
             repeat(
               3,
               minmax(0, 1fr)
             );
-
           gap: 15px;
-
-          margin-top: 17px;
+          margin-top: 12px;
         }
 
         .action-panel {
           display: flex;
-
-          min-height: 180px;
-
+          min-height: 185px;
           gap: 14px;
-
           padding: 21px;
+          text-decoration: none;
+          transition:
+            transform
+              0.18s ease,
+            border-color
+              0.18s ease;
+        }
+
+        .action-panel:hover {
+          transform:
+            translateY(-2px);
+          border-color:
+            #cbd8ea;
         }
 
         .action-icon {
           display: grid;
-
           width: 42px;
           height: 42px;
-
           flex: 0 0 42px;
-
           place-items: center;
-
           border-radius: 11px;
         }
 
@@ -2795,55 +3235,95 @@ export default function DashboardPage() {
           color: #6d4fd1;
         }
 
-        .action-panel > div:last-child > span {
+        .action-panel
+          > div:last-child
+          > span {
           color: #2c5ace;
-
           font-size: 7px;
           font-weight: 900;
-
           letter-spacing: 0.13em;
         }
 
         .action-panel h3 {
-          margin: 7px 0;
-
+          margin:
+            7px 0;
           color: #1d2a42;
-
           font-size: 14px;
         }
 
         .action-panel p {
           margin: 0;
-
           color: #828ea0;
-
           font-size: 9px;
-
           line-height: 1.6;
         }
 
-        .action-panel a {
+        .action-link {
           display: flex;
-
           width: fit-content;
-
           align-items: center;
-
           gap: 4px;
-
           margin-top: 13px;
-
           color: #2758ca;
-
           font-size: 8px;
-          font-weight: 800;
-
-          text-decoration: none;
         }
 
-        /* ===============================================
-           MOBILE
-        =============================================== */
+        /* QUICK LINKS */
+
+        .quick-links {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              4,
+              minmax(0, 1fr)
+            );
+          gap: 12px;
+          margin-top: 17px;
+        }
+
+        .quick-links a {
+          display: grid;
+          grid-template-columns:
+            auto 1fr auto;
+          align-items: center;
+          gap: 11px;
+          min-height: 76px;
+          padding: 16px;
+          border:
+            1px solid #dfe5ed;
+          border-radius: 13px;
+          background: #fff;
+          color: #315999;
+          text-decoration: none;
+          transition:
+            transform
+              0.18s ease,
+            border-color
+              0.18s ease;
+        }
+
+        .quick-links a:hover {
+          transform:
+            translateY(-1px);
+          border-color:
+            #c5d2e6;
+        }
+
+        .quick-links strong {
+          display: block;
+          color: #304058;
+          font-size: 9px;
+        }
+
+        .quick-links span {
+          display: block;
+          margin-top: 4px;
+          color: #909bae;
+          font-size: 7px;
+          line-height: 1.4;
+        }
+
+        /* MOBILE */
 
         .mobile-topbar,
         .mobile-overlay {
@@ -2865,7 +3345,7 @@ export default function DashboardPage() {
         }
 
         @media (
-          max-width: 1150px
+          max-width: 1160px
         ) {
           .dashboard-stats {
             grid-template-columns:
@@ -2884,6 +3364,11 @@ export default function DashboardPage() {
             grid-template-columns:
               1fr 1fr;
           }
+
+          .quick-links {
+            grid-template-columns:
+              1fr 1fr;
+          }
         }
 
         @media (
@@ -2891,74 +3376,62 @@ export default function DashboardPage() {
         ) {
           .mobile-topbar {
             position: sticky;
-
             top: 0;
-
             z-index: 450;
-
             display: flex;
-
             height: 62px;
-
             align-items: center;
-
             justify-content:
               space-between;
-
             padding: 0 18px;
-
             border-bottom:
               1px solid #dfe5ed;
-
             background:
               rgba(
                 255,
                 255,
                 255,
-                0.95
+                0.96
               );
-
             backdrop-filter:
               blur(12px);
           }
 
-          .mobile-wordmark {
+          .mobile-topbar
+            strong {
+            display: block;
             color: #0a2c6e;
-
             font-size: 16px;
-            font-weight: 900;
-
-            letter-spacing: 0.11em;
+            letter-spacing: 0.1em;
           }
 
-          .mobile-topbar button {
-            display: grid;
+          .mobile-topbar span {
+            display: block;
+            margin-top: 2px;
+            color: #98a3b3;
+            font-size: 6px;
+            font-weight: 800;
+            letter-spacing: 0.13em;
+          }
 
+          .mobile-topbar
+            button {
+            display: grid;
             width: 38px;
             height: 38px;
-
             place-items: center;
-
             border:
               1px solid #dce3ec;
-
             border-radius: 9px;
-
-            background: #ffffff;
-
+            background: #fff;
             color: #3e4f67;
           }
 
           .portal-sidebar {
             z-index: 1001;
-
             width: 280px;
-
             transform:
-              translateX(
-                -100%
-              );
-
+              translateX(-100%);
             transition:
               transform
               0.25s ease;
@@ -2971,24 +3444,17 @@ export default function DashboardPage() {
 
           .sidebar-mobile-close {
             display: grid;
-
             place-items: center;
           }
 
           .mobile-overlay {
             position: fixed;
-
             inset: 0;
-
             z-index: 1000;
-
             display: block;
-
             width: 100%;
             height: 100%;
-
             border: 0;
-
             background:
               rgba(
                 7,
@@ -3000,13 +3466,12 @@ export default function DashboardPage() {
 
           .portal-main {
             margin-left: 0;
-
             padding:
               0 17px 40px;
           }
 
           .dashboard-header {
-            min-height: 87px;
+            min-height: 92px;
           }
 
           .header-user {
@@ -3016,14 +3481,12 @@ export default function DashboardPage() {
           .welcome-card {
             align-items:
               flex-start;
-
             flex-direction:
               column;
           }
 
           .welcome-status {
             width: 100%;
-
             min-width: 0;
           }
 
@@ -3031,12 +3494,24 @@ export default function DashboardPage() {
             grid-template-columns:
               1fr;
           }
+
+          .attention-panel {
+            grid-template-columns:
+              auto 1fr;
+          }
+
+          .attention-panel a {
+            grid-column:
+              1 / -1;
+            width: fit-content;
+          }
         }
 
         @media (
           max-width: 560px
         ) {
-          .dashboard-stats {
+          .dashboard-stats,
+          .quick-links {
             grid-template-columns:
               1fr;
           }
@@ -3046,18 +3521,16 @@ export default function DashboardPage() {
           }
 
           .refresh-button {
-            width: 39px;
-
+            width: 42px;
             padding: 0;
-
             justify-content:
               center;
-
             font-size: 0;
           }
 
           .welcome-card {
-            padding: 25px 21px;
+            padding:
+              27px 21px;
           }
 
           .welcome-copy h2 {
@@ -3070,11 +3543,7 @@ export default function DashboardPage() {
             padding: 19px;
           }
 
-          .progress-numbers {
-            grid-template-columns:
-              1fr;
-          }
-
+          .progress-numbers,
           .project-info-grid {
             grid-template-columns:
               1fr;
@@ -3083,6 +3552,35 @@ export default function DashboardPage() {
           .project-info-grid
             > div.wide {
             grid-column: auto;
+          }
+
+          .dashboard-error {
+            grid-template-columns:
+              auto 1fr;
+          }
+
+          .dashboard-error
+            button {
+            grid-column:
+              1 / -1;
+            width: fit-content;
+          }
+
+          .attention-panel {
+            align-items:
+              flex-start;
+            grid-template-columns:
+              1fr;
+          }
+
+          .welcome-actions {
+            flex-direction:
+              column;
+          }
+
+          .welcome-actions a {
+            justify-content:
+              center;
           }
         }
       `}</style>
