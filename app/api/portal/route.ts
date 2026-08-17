@@ -1,29 +1,29 @@
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-
 export const dynamic = "force-dynamic";
 
 type RequestBody = {
   action?: "login" | "submit";
 
   applicationNumber?: string;
-
   email?: string;
-
   phone?: string;
 
   taskId?: string;
-
   submissionUrl?: string;
-
   submissionSummary?: string;
-
   studentRemarks?: string;
 };
 
 function normalizePhone(value: unknown) {
-  return String(value ?? "").replace(/\D/g, "");
+  const digits =
+    String(value ?? "").replace(
+      /\D/g,
+      "",
+    );
+
+  return digits.slice(-10);
 }
 
 function getApiUrl() {
@@ -38,28 +38,50 @@ function getApiUrl() {
     );
   }
 
-  return value.replace(/\/+$/, "");
+  return value.replace(
+    /\/+$/,
+    "",
+  );
 }
 
-async function getResponseData(response: Response) {
+async function getResponseData(
+  response: Response,
+) {
   const contentType =
-    response.headers.get("content-type") || "";
+    response.headers.get(
+      "content-type",
+    ) || "";
 
-  if (contentType.includes("application/json")) {
-    return response.json();
+  if (
+    contentType.includes(
+      "application/json",
+    )
+  ) {
+    try {
+      return await response.json();
+    } catch {
+      return {
+        success: false,
+        message:
+          "KRVE API returned invalid JSON.",
+      };
+    }
   }
 
-  const text = await response.text();
+  const text =
+    await response.text();
 
   return {
     success: false,
     message:
       text ||
-      "Unexpected response from KRVE Central API.",
+      `KRVE API returned HTTP ${response.status}.`,
   };
 }
 
-export async function POST(request: Request) {
+export async function POST(
+  request: Request,
+) {
   try {
     const body =
       (await request.json()) as RequestBody;
@@ -68,26 +90,38 @@ export async function POST(request: Request) {
       body.action || "login";
 
     const applicationNumber =
-      String(body.applicationNumber || "").trim();
+      String(
+        body.applicationNumber ||
+          "",
+      ).trim();
 
     const email =
-      String(body.email || "")
+      String(
+        body.email || "",
+      )
         .trim()
         .toLowerCase();
 
     const phone =
-      normalizePhone(body.phone);
+      normalizePhone(
+        body.phone,
+      );
+
+    /* =====================================================
+       BASIC VALIDATION
+    ===================================================== */
 
     if (
       !applicationNumber ||
       !email ||
-      phone.length < 10
+      phone.length !== 10
     ) {
       return NextResponse.json(
         {
           success: false,
+
           message:
-            "Application number, registered email and mobile number are required.",
+            "Application number, registered email and valid 10-digit mobile number are required.",
         },
         {
           status: 400,
@@ -95,61 +129,209 @@ export async function POST(request: Request) {
       );
     }
 
-    const apiUrl = getApiUrl();
+    const apiUrl =
+      getApiUrl();
+
+    /* =====================================================
+       LOGIN
+    ===================================================== */
 
     if (action === "login") {
-      const response = await fetch(
-        `${apiUrl}/live-projects/student`,
+      const endpoint =
+        `${apiUrl}/api/live-project/student`;
+
+      console.log(
+        "KRVE_PORTAL_LOGIN_REQUEST",
         {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            applicationNumber,
-            email,
-            phone,
-          }),
-
-          cache: "no-store",
+          endpoint,
+          applicationNumber,
+          email,
         },
       );
 
+      const response =
+        await fetch(
+          endpoint,
+          {
+            method:
+              "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Accept:
+                "application/json",
+            },
+
+            body:
+              JSON.stringify({
+                action:
+                  "login",
+
+                applicationNumber,
+
+                email,
+
+                phone,
+              }),
+
+            cache:
+              "no-store",
+          },
+        );
+
       const data =
-        await getResponseData(response);
+        await getResponseData(
+          response,
+        );
+
+      if (!response.ok) {
+        console.error(
+          "KRVE_PORTAL_LOGIN_FAILED",
+          {
+            status:
+              response.status,
+
+            endpoint,
+
+            data,
+          },
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+
+            message:
+              data?.message ||
+              "Unable to verify student account.",
+          },
+          {
+            status:
+              response.status >=
+                400 &&
+              response.status <
+                500
+                ? response.status
+                : 502,
+          },
+        );
+      }
+
+      const portalData =
+        data?.data || null;
+
+      const student =
+        data?.student ||
+        portalData?.student ||
+        null;
+
+      const tasks =
+        data?.tasks ||
+        portalData?.tasks ||
+        [];
+
+      const summary =
+        data?.summary ||
+        portalData?.summary ||
+        {
+          assignedTasks:
+            tasks.length,
+
+          submittedTasks:
+            tasks.filter(
+              (task: any) =>
+                Boolean(
+                  task?.submittedAt,
+                ),
+            ).length,
+
+          approvedTasks:
+            tasks.filter(
+              (task: any) =>
+                String(
+                  task?.status ||
+                    "",
+                ).toLowerCase() ===
+                "approved",
+            ).length,
+        };
+
+      if (!student) {
+        console.error(
+          "KRVE_PORTAL_STUDENT_MISSING",
+          data,
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+
+            message:
+              "Student record was not returned by KRVE Central API.",
+          },
+          {
+            status: 502,
+          },
+        );
+      }
 
       return NextResponse.json(
-        data,
         {
-          status: response.status,
+          success: true,
+
+          data: {
+            student,
+            tasks,
+            summary,
+          },
+
+          student,
+          tasks,
+          summary,
+        },
+        {
+          status: 200,
         },
       );
     }
 
-    if (action === "submit") {
+    /* =====================================================
+       SUBMIT TASK
+    ===================================================== */
+
+    if (
+      action === "submit"
+    ) {
       const taskId =
-        String(body.taskId || "").trim();
+        String(
+          body.taskId || "",
+        ).trim();
 
       const submissionUrl =
-        String(body.submissionUrl || "").trim();
+        String(
+          body.submissionUrl ||
+            "",
+        ).trim();
 
       const submissionSummary =
         String(
-          body.submissionSummary || "",
+          body.submissionSummary ||
+            "",
         ).trim();
 
       const studentRemarks =
         String(
-          body.studentRemarks || "",
+          body.studentRemarks ||
+            "",
         ).trim();
 
       if (!taskId) {
         return NextResponse.json(
           {
             success: false,
+
             message:
               "Task ID is required.",
           },
@@ -163,6 +345,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             success: false,
+
             message:
               "Submission link is required.",
           },
@@ -172,48 +355,122 @@ export async function POST(request: Request) {
         );
       }
 
-      const response = await fetch(
-        `${apiUrl}/live-projects/student/submit`,
+      /*
+        We send submission through the same student API.
+
+        The main KRVE API can detect action: "submit".
+      */
+
+      const endpoint =
+        `${apiUrl}/api/live-project/student`;
+
+      console.log(
+        "KRVE_PORTAL_SUBMIT_REQUEST",
         {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            applicationNumber,
-            email,
-            phone,
-
-            taskId,
-
-            submissionUrl,
-
-            submissionSummary,
-
-            studentRemarks,
-          }),
-
-          cache: "no-store",
+          endpoint,
+          applicationNumber,
+          taskId,
         },
       );
 
+      const response =
+        await fetch(
+          endpoint,
+          {
+            method:
+              "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Accept:
+                "application/json",
+            },
+
+            body:
+              JSON.stringify({
+                action:
+                  "submit",
+
+                applicationNumber,
+
+                email,
+
+                phone,
+
+                taskId,
+
+                submissionUrl,
+
+                submissionSummary,
+
+                studentRemarks,
+              }),
+
+            cache:
+              "no-store",
+          },
+        );
+
       const data =
-        await getResponseData(response);
+        await getResponseData(
+          response,
+        );
+
+      if (!response.ok) {
+        console.error(
+          "KRVE_PORTAL_SUBMISSION_FAILED",
+          {
+            status:
+              response.status,
+
+            endpoint,
+
+            data,
+          },
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+
+            message:
+              data?.message ||
+              "Unable to submit task.",
+          },
+          {
+            status:
+              response.status >=
+                400 &&
+              response.status <
+                500
+                ? response.status
+                : 502,
+          },
+        );
+      }
 
       return NextResponse.json(
-        data,
         {
-          status: response.status,
+          success: true,
+
+          ...data,
+        },
+        {
+          status: 200,
         },
       );
     }
 
+    /* =====================================================
+       INVALID ACTION
+    ===================================================== */
+
     return NextResponse.json(
       {
         success: false,
+
         message:
           "Invalid portal action.",
       },
