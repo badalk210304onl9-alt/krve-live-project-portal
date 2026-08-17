@@ -16,12 +16,12 @@ type RequestBody = {
   studentRemarks?: string;
 };
 
-function normalizePhone(value: unknown) {
+function normalizePhone(
+  value: unknown,
+) {
   const digits =
-    String(value ?? "").replace(
-      /\D/g,
-      "",
-    );
+    String(value ?? "")
+      .replace(/\D/g, "");
 
   return digits.slice(-10);
 }
@@ -107,10 +107,6 @@ export async function POST(
         body.phone,
       );
 
-    /* =====================================================
-       BASIC VALIDATION
-    ===================================================== */
-
     if (
       !applicationNumber ||
       !email ||
@@ -132,29 +128,34 @@ export async function POST(
     const apiUrl =
       getApiUrl();
 
+    /*
+      The KRVE Fashion website already has:
+
+      POST  /api/live-project/student
+        -> fetch student portal data
+
+      PATCH /api/live-project/student
+        -> submit/resubmit task work
+
+      So this portal proxy uses the same endpoint with the
+      correct HTTP method for each action.
+    */
+
+    const endpoint =
+      `${apiUrl}/api/live-project/student`;
+
     /* =====================================================
-       LOGIN
+       LOGIN / REFRESH
     ===================================================== */
 
-    if (action === "login") {
-      const endpoint =
-        `${apiUrl}/api/live-project/student`;
-
-      console.log(
-        "KRVE_PORTAL_LOGIN_REQUEST",
-        {
-          endpoint,
-          applicationNumber,
-          email,
-        },
-      );
-
+    if (
+      action === "login"
+    ) {
       const response =
         await fetch(
           endpoint,
           {
-            method:
-              "POST",
+            method: "POST",
 
             headers: {
               "Content-Type":
@@ -166,13 +167,8 @@ export async function POST(
 
             body:
               JSON.stringify({
-                action:
-                  "login",
-
                 applicationNumber,
-
                 email,
-
                 phone,
               }),
 
@@ -192,9 +188,7 @@ export async function POST(
           {
             status:
               response.status,
-
             endpoint,
-
             data,
           },
         );
@@ -242,8 +236,18 @@ export async function POST(
           submittedTasks:
             tasks.filter(
               (task: any) =>
-                Boolean(
-                  task?.submittedAt,
+                [
+                  "submitted",
+                  "under_review",
+                  "approved",
+                  "revision_requested",
+                ].includes(
+                  String(
+                    task?.status ||
+                      "",
+                  )
+                    .trim()
+                    .toLowerCase(),
                 ),
             ).length,
 
@@ -253,17 +257,26 @@ export async function POST(
                 String(
                   task?.status ||
                     "",
-                ).toLowerCase() ===
+                )
+                  .trim()
+                  .toLowerCase() ===
+                "approved",
+            ).length,
+
+          pendingTasks:
+            tasks.filter(
+              (task: any) =>
+                String(
+                  task?.status ||
+                    "",
+                )
+                  .trim()
+                  .toLowerCase() !==
                 "approved",
             ).length,
         };
 
       if (!student) {
-        console.error(
-          "KRVE_PORTAL_STUDENT_MISSING",
-          data,
-        );
-
         return NextResponse.json(
           {
             success: false,
@@ -298,7 +311,7 @@ export async function POST(
     }
 
     /* =====================================================
-       SUBMIT TASK
+       TASK SUBMISSION / RESUBMISSION
     ===================================================== */
 
     if (
@@ -355,30 +368,59 @@ export async function POST(
         );
       }
 
+      let parsedUrl: URL;
+
+      try {
+        parsedUrl =
+          new URL(
+            submissionUrl,
+          );
+      } catch {
+        return NextResponse.json(
+          {
+            success: false,
+
+            message:
+              "Please enter a valid submission URL.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      if (
+        ![
+          "http:",
+          "https:",
+        ].includes(
+          parsedUrl.protocol,
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+
+            message:
+              "Submission URL must use http or https.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
       /*
-        We send submission through the same student API.
-
-        The main KRVE API can detect action: "submit".
+        IMPORTANT:
+        Main website route.ts uses PATCH for the submission proxy.
       */
-
-      const endpoint =
-        `${apiUrl}/api/live-project/student`;
-
-      console.log(
-        "KRVE_PORTAL_SUBMIT_REQUEST",
-        {
-          endpoint,
-          applicationNumber,
-          taskId,
-        },
-      );
 
       const response =
         await fetch(
           endpoint,
           {
             method:
-              "POST",
+              "PATCH",
 
             headers: {
               "Content-Type":
@@ -390,21 +432,12 @@ export async function POST(
 
             body:
               JSON.stringify({
-                action:
-                  "submit",
-
                 applicationNumber,
-
                 email,
-
                 phone,
-
                 taskId,
-
                 submissionUrl,
-
                 submissionSummary,
-
                 studentRemarks,
               }),
 
@@ -424,9 +457,8 @@ export async function POST(
           {
             status:
               response.status,
-
             endpoint,
-
+            taskId,
             data,
           },
         );
@@ -454,7 +486,6 @@ export async function POST(
       return NextResponse.json(
         {
           success: true,
-
           ...data,
         },
         {
@@ -462,10 +493,6 @@ export async function POST(
         },
       );
     }
-
-    /* =====================================================
-       INVALID ACTION
-    ===================================================== */
 
     return NextResponse.json(
       {
