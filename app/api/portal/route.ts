@@ -24,27 +24,25 @@ function normalizePhone(
     .slice(-10);
 }
 
-function getApiUrl() {
+function getWebsiteBase() {
   const value =
-    process.env.KRVE_API_URL?.trim() ||
-    process.env.KRVE_CENTRAL_API_URL?.trim() ||
-    process.env.NEXT_PUBLIC_KRVE_API_URL?.trim() ||
-    "";
+    process.env.KRVE_WEBSITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_KRVE_WEBSITE_URL?.trim() ||
+    "https://krve-fashion.vercel.app";
 
-  if (!value) {
-    throw new Error(
-      "KRVE_API_URL is missing in Vercel Environment Variables.",
-    );
-  }
-
-  return value.replace(/\/+$/, "");
+  return value.replace(
+    /\/+$/,
+    "",
+  );
 }
 
-async function getResponseData(
+async function readResponse(
   response: Response,
 ) {
   const contentType =
-    response.headers.get("content-type") || "";
+    response.headers.get(
+      "content-type",
+    ) || "";
 
   if (
     contentType.includes(
@@ -57,7 +55,7 @@ async function getResponseData(
       return {
         success: false,
         message:
-          "KRVE Central API returned invalid JSON.",
+          "KRVE website API returned invalid JSON.",
       };
     }
   }
@@ -65,11 +63,32 @@ async function getResponseData(
   const text =
     await response.text();
 
+  /*
+    Never dump a full Next.js HTML 404 page into the UI.
+  */
+  if (
+    contentType.includes(
+      "text/html",
+    ) ||
+    text
+      .trim()
+      .toLowerCase()
+      .startsWith(
+        "<!doctype",
+      )
+  ) {
+    return {
+      success: false,
+      message:
+        `KRVE website API route was not found (HTTP ${response.status}).`,
+    };
+  }
+
   return {
     success: false,
     message:
       text ||
-      `KRVE Central API returned HTTP ${response.status}.`,
+      `KRVE website API returned HTTP ${response.status}.`,
   };
 }
 
@@ -85,7 +104,8 @@ export async function POST(
 
     const applicationNumber =
       String(
-        body.applicationNumber || "",
+        body.applicationNumber ||
+          "",
       ).trim();
 
     const email =
@@ -108,6 +128,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Application number, registered email and valid 10-digit mobile number are required.",
         },
@@ -116,178 +137,6 @@ export async function POST(
         },
       );
     }
-
-    const apiUrl =
-      getApiUrl();
-
-    /* =====================================================
-       LOGIN / REFRESH
-       Central API accepts POST:
-       /live-projects/student
-    ===================================================== */
-
-    if (
-      action === "login"
-    ) {
-      const response =
-        await fetch(
-          `${apiUrl}/live-projects/student`,
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-
-              Accept:
-                "application/json",
-            },
-
-            body:
-              JSON.stringify({
-                applicationNumber,
-                email,
-                phone,
-              }),
-
-            cache:
-              "no-store",
-          },
-        );
-
-      const data =
-        await getResponseData(
-          response,
-        );
-
-      if (!response.ok) {
-        console.error(
-          "KRVE_PORTAL_LOGIN_FAILED",
-          {
-            status:
-              response.status,
-
-            data,
-          },
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-
-            message:
-              data?.message ||
-              `KRVE API returned HTTP ${response.status}.`,
-          },
-          {
-            status:
-              response.status,
-          },
-        );
-      }
-
-      const portalData =
-        data?.data || null;
-
-      const student =
-        data?.student ||
-        portalData?.student ||
-        null;
-
-      const tasks =
-        data?.tasks ||
-        portalData?.tasks ||
-        [];
-
-      const summary =
-        data?.summary ||
-        portalData?.summary ||
-        {
-          assignedTasks:
-            tasks.length,
-
-          submittedTasks:
-            tasks.filter(
-              (task: any) =>
-                [
-                  "submitted",
-                  "under_review",
-                  "approved",
-                  "revision_requested",
-                ].includes(
-                  String(
-                    task?.status || "",
-                  )
-                    .trim()
-                    .toLowerCase(),
-                ),
-            ).length,
-
-          approvedTasks:
-            tasks.filter(
-              (task: any) =>
-                String(
-                  task?.status || "",
-                )
-                  .trim()
-                  .toLowerCase() ===
-                "approved",
-            ).length,
-
-          pendingTasks:
-            tasks.filter(
-              (task: any) =>
-                String(
-                  task?.status || "",
-                )
-                  .trim()
-                  .toLowerCase() !==
-                "approved",
-            ).length,
-        };
-
-      if (!student) {
-        return NextResponse.json(
-          {
-            success: false,
-
-            message:
-              "Student record was not returned by KRVE Central API.",
-          },
-          {
-            status: 502,
-          },
-        );
-      }
-
-      return NextResponse.json(
-        {
-          success: true,
-
-          data: {
-            student,
-            tasks,
-            summary,
-          },
-
-          student,
-          tasks,
-          summary,
-        },
-        {
-          status: 200,
-        },
-      );
-    }
-
-    /* =====================================================
-       SUBMIT / RESUBMIT
-       Central API accepts BOTH POST and PATCH:
-       /live-projects/student/submit
-
-       We use POST here so the Student Portal itself can keep
-       using POST /api/portal for both actions.
-    ===================================================== */
 
     if (
       action === "submit"
@@ -299,174 +148,104 @@ export async function POST(
 
       const submissionUrl =
         String(
-          body.submissionUrl || "",
+          body.submissionUrl ||
+            "",
         ).trim();
-
-      const submissionSummary =
-        String(
-          body.submissionSummary || "",
-        ).trim();
-
-      const studentRemarks =
-        String(
-          body.studentRemarks || "",
-        ).trim();
-
-      if (!taskId) {
-        return NextResponse.json(
-          {
-            success: false,
-
-            message:
-              "Task ID is required.",
-          },
-          {
-            status: 400,
-          },
-        );
-      }
-
-      if (!submissionUrl) {
-        return NextResponse.json(
-          {
-            success: false,
-
-            message:
-              "Submission link is required.",
-          },
-          {
-            status: 400,
-          },
-        );
-      }
-
-      let parsedUrl: URL;
-
-      try {
-        parsedUrl =
-          new URL(
-            submissionUrl,
-          );
-      } catch {
-        return NextResponse.json(
-          {
-            success: false,
-
-            message:
-              "Please enter a valid submission URL.",
-          },
-          {
-            status: 400,
-          },
-        );
-      }
 
       if (
-        ![
-          "http:",
-          "https:",
-        ].includes(
-          parsedUrl.protocol,
-        )
+        !taskId ||
+        !submissionUrl
       ) {
         return NextResponse.json(
           {
             success: false,
 
             message:
-              "Submission URL must use http or https.",
+              "Task ID and submission link are required.",
           },
           {
             status: 400,
           },
         );
       }
+    }
 
-      const response =
-        await fetch(
-          `${apiUrl}/live-projects/student/submit`,
-          {
-            method: "POST",
+    const response =
+      await fetch(
+        `${getWebsiteBase()}/api/live-project/student`,
+        {
+          method: "POST",
 
-            headers: {
-              "Content-Type":
-                "application/json",
+          headers: {
+            "Content-Type":
+              "application/json",
 
-              Accept:
-                "application/json",
-            },
-
-            body:
-              JSON.stringify({
-                applicationNumber,
-                email,
-                phone,
-
-                taskId,
-                submissionUrl,
-                submissionSummary,
-                studentRemarks,
-              }),
-
-            cache:
-              "no-store",
+            Accept:
+              "application/json",
           },
-        );
 
-      const data =
-        await getResponseData(
-          response,
-        );
+          /*
+            Main KRVE website route now understands
+            action: login and action: submit.
+          */
+          body:
+            JSON.stringify({
+              ...body,
 
-      if (!response.ok) {
-        console.error(
-          "KRVE_PORTAL_SUBMISSION_FAILED",
-          {
-            status:
-              response.status,
+              action,
 
-            taskId,
+              applicationNumber,
+              email,
+              phone,
+            }),
 
-            data,
-          },
-        );
+          cache:
+            "no-store",
+        },
+      );
 
-        return NextResponse.json(
-          {
-            success: false,
+    const data =
+      await readResponse(
+        response,
+      );
 
-            message:
-              data?.message ||
-              `KRVE API returned HTTP ${response.status}.`,
-          },
-          {
-            status:
-              response.status,
-          },
-        );
-      }
+    if (!response.ok) {
+      console.error(
+        "KRVE_LIVE_PROJECT_PORTAL_PROXY_FAILED",
+        {
+          status:
+            response.status,
+
+          action,
+
+          data,
+        },
+      );
 
       return NextResponse.json(
         {
-          success: true,
+          success: false,
 
-          ...data,
+          message:
+            data?.message ||
+            `KRVE API returned HTTP ${response.status}.`,
         },
         {
-          status: 200,
+          status:
+            response.status >=
+              400 &&
+            response.status <
+              600
+              ? response.status
+              : 502,
         },
       );
     }
 
     return NextResponse.json(
+      data,
       {
-        success: false,
-
-        message:
-          "Invalid portal action.",
-      },
-      {
-        status: 400,
+        status: 200,
       },
     );
   } catch (error) {
@@ -482,7 +261,7 @@ export async function POST(
         message:
           error instanceof Error
             ? error.message
-            : "Unable to connect to KRVE Central API.",
+            : "Unable to connect to KRVE website API.",
       },
       {
         status: 500,
