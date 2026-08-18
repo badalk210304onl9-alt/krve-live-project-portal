@@ -4,27 +4,35 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 
 import {
+  AlertCircle,
+  ArrowLeft,
   Award,
   BarChart3,
   BookOpen,
   BriefcaseBusiness,
-  ChevronLeft,
+  CheckCircle2,
+  ChevronRight,
   ClipboardList,
   Copy,
+  ExternalLink,
   FileCheck2,
   IndianRupee,
   LayoutDashboard,
+  Link2,
   Loader2,
   LogOut,
   Menu,
   MessageSquareText,
+  PackageCheck,
   RefreshCcw,
+  RotateCcw,
+  Share2,
   ShoppingBag,
   Target,
-  TrendingUp,
   UserRound,
   Users,
   X,
@@ -45,15 +53,55 @@ type SessionData = {
   portal: StudentPortalData;
 };
 
+type SaleRecord = {
+  id: string;
+  applicationId: string;
+  orderId?: string | null;
+  referralCode?: string | null;
+  leadCount: number;
+  customerContacts: number;
+  ordersCount: number;
+  revenue: number;
+  returnsCount: number;
+  cancellationsCount: number;
+  note?: string | null;
+  recordedAt?: string | null;
+};
+
+type SalesSummary = {
+  entries: number;
+  leads: number;
+  customerContacts: number;
+  orders: number;
+  revenue: number;
+  returns: number;
+  cancellations: number;
+};
+
+type ExtendedPortalData =
+  StudentPortalData & {
+    sales?: SaleRecord[];
+    salesSummary?: SalesSummary;
+  };
+
+type ExtendedStudent =
+  StudentPortalData["student"] & {
+    salesOrders?: number | null;
+    salesRevenue?: number | null;
+  };
+
 type ApiResponse = {
   success?: boolean;
   message?: string;
 
-  data?: StudentPortalData;
+  data?: ExtendedPortalData;
 
-  student?: StudentPortalData["student"];
+  student?: ExtendedStudent;
   tasks?: StudentPortalData["tasks"];
   summary?: StudentPortalData["summary"];
+
+  sales?: SaleRecord[];
+  salesSummary?: SalesSummary;
 };
 
 type NavItem = {
@@ -117,14 +165,26 @@ const navigation: NavItem[] = [
   },
 ];
 
+const emptySalesSummary: SalesSummary = {
+  entries: 0,
+  leads: 0,
+  customerContacts: 0,
+  orders: 0,
+  revenue: 0,
+  returns: 0,
+  cancellations: 0,
+};
+
 /* =========================================================
    HELPERS
 ========================================================= */
 
 function extractPortalData(
   response: ApiResponse,
-): StudentPortalData | null {
-  if (response.data?.student) {
+): ExtendedPortalData | null {
+  if (
+    response.data?.student
+  ) {
     return response.data;
   }
 
@@ -134,21 +194,83 @@ function extractPortalData(
     response.summary
   ) {
     return {
-      student: response.student,
-      tasks: response.tasks,
-      summary: response.summary,
+      student:
+        response.student,
+
+      tasks:
+        response.tasks,
+
+      summary:
+        response.summary,
+
+      sales:
+        response.sales || [],
+
+      salesSummary:
+        response.salesSummary ||
+        emptySalesSummary,
     };
   }
 
   return null;
 }
 
+function formatMoney(
+  value: number,
+) {
+  return new Intl.NumberFormat(
+    "en-IN",
+    {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    },
+  ).format(
+    Number(value || 0),
+  );
+}
+
+function formatDate(
+  value?:
+    | string
+    | null,
+) {
+  if (!value) {
+    return "—";
+  }
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    },
+  ).format(date);
+}
+
 function statusLabel(
-  value?: string | null,
+  value?:
+    | string
+    | null,
 ) {
   const normalized =
     String(value || "")
-      .replace(/_/g, " ")
+      .replace(
+        /_/g,
+        " ",
+      )
       .trim();
 
   if (!normalized) {
@@ -162,22 +284,15 @@ function statusLabel(
   );
 }
 
-function impactPercentage(
-  value?: number | null,
-) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return 0;
-  }
+function getStoreBase() {
+  const value =
+    process.env
+      .NEXT_PUBLIC_KRVE_STORE_URL ||
+    "https://krvefashionstudio.in";
 
-  return Math.min(
-    100,
-    Math.max(
-      0,
-      (value / 20) * 100,
-    ),
+  return value.replace(
+    /\/+$/,
+    "",
   );
 }
 
@@ -185,7 +300,7 @@ function impactPercentage(
    PAGE
 ========================================================= */
 
-export default function SalesPage() {
+export default function SalesImpactPage() {
   const [
     session,
     setSession,
@@ -263,9 +378,11 @@ export default function SalesPage() {
         return;
       }
 
-      setSession(parsed);
+      setSession(
+        parsed,
+      );
 
-      refreshPortal(
+      void refreshPortal(
         parsed.credentials,
         false,
       );
@@ -278,7 +395,9 @@ export default function SalesPage() {
         "/",
       );
     } finally {
-      setLoading(false);
+      setLoading(
+        false,
+      );
     }
   }, []);
 
@@ -287,11 +406,14 @@ export default function SalesPage() {
   ======================================================= */
 
   async function refreshPortal(
-    credentials: StudentCredentials,
+    credentials:
+      StudentCredentials,
     showLoader = true,
   ) {
     if (showLoader) {
-      setRefreshing(true);
+      setRefreshing(
+        true,
+      );
     }
 
     setError("");
@@ -301,7 +423,8 @@ export default function SalesPage() {
         await fetch(
           "/api/portal",
           {
-            method: "POST",
+            method:
+              "POST",
 
             headers: {
               "Content-Type":
@@ -310,16 +433,20 @@ export default function SalesPage() {
 
             body:
               JSON.stringify({
-                action: "login",
+                action:
+                  "login",
 
                 applicationNumber:
-                  credentials.applicationNumber,
+                  credentials
+                    .applicationNumber,
 
                 email:
-                  credentials.email,
+                  credentials
+                    .email,
 
                 phone:
-                  credentials.phone,
+                  credentials
+                    .phone,
               }),
 
             cache:
@@ -330,26 +457,31 @@ export default function SalesPage() {
       const data =
         (await response.json()) as ApiResponse;
 
-      if (!response.ok) {
+      if (
+        !response.ok
+      ) {
         throw new Error(
           data.message ||
-            "Unable to refresh sales data.",
+            "Unable to refresh Sales & Impact data.",
         );
       }
 
       const portal =
-        extractPortalData(data);
+        extractPortalData(
+          data,
+        );
 
       if (!portal) {
         throw new Error(
-          "Portal data was not returned.",
+          "Sales & Impact data was not returned.",
         );
       }
 
       const nextSession:
         SessionData = {
         credentials,
-        portal,
+        portal:
+          portal as StudentPortalData,
       };
 
       setSession(
@@ -364,12 +496,67 @@ export default function SalesPage() {
       );
     } catch (refreshError) {
       setError(
-        refreshError instanceof Error
+        refreshError instanceof
+          Error
           ? refreshError.message
-          : "Unable to refresh sales data.",
+          : "Unable to refresh Sales & Impact.",
       );
     } finally {
-      setRefreshing(false);
+      setRefreshing(
+        false,
+      );
+    }
+  }
+
+  /* =======================================================
+     COPY / SHARE
+  ======================================================= */
+
+  async function copyText(
+    value: string,
+  ) {
+    try {
+      await navigator.clipboard.writeText(
+        value,
+      );
+
+      setCopied(true);
+
+      window.setTimeout(
+        () =>
+          setCopied(false),
+        1800,
+      );
+    } catch {
+      setError(
+        "Could not copy to clipboard.",
+      );
+    }
+  }
+
+  async function shareReferral(
+    link: string,
+  ) {
+    try {
+      if (
+        navigator.share
+      ) {
+        await navigator.share({
+          title:
+            "KRVÉ — The Fashion Studio",
+          text:
+            "Explore KRVÉ using my Live Project referral link.",
+          url: link,
+        });
+
+        return;
+      }
+
+      await copyText(
+        link,
+      );
+    } catch {
+      // User cancellation should not show an error.
     }
   }
 
@@ -382,61 +569,14 @@ export default function SalesPage() {
       SESSION_KEY,
     );
 
-    window.location.href =
-      "/";
+    window.location.replace(
+      "/",
+    );
   }
 
   /* =======================================================
-     COPY REFERRAL CODE
+     LOADING
   ======================================================= */
-
-  async function copyReferralCode() {
-    const code =
-      session?.portal.student.referralCode;
-
-    if (!code) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(
-        code,
-      );
-
-      setCopied(true);
-
-      window.setTimeout(
-        () =>
-          setCopied(
-            false,
-          ),
-        1400,
-      );
-    } catch {
-      setError(
-        "Unable to copy referral code.",
-      );
-    }
-  }
-
-  /* =======================================================
-     DERIVED DATA
-  ======================================================= */
-
-  const approvedTasks =
-    useMemo(() => {
-      if (!session) {
-        return 0;
-      }
-
-      return session.portal.tasks.filter(
-        (task) =>
-          String(
-            task.status,
-          ).toLowerCase() ===
-          "approved",
-      ).length;
-    }, [session]);
 
   if (
     loading ||
@@ -444,14 +584,18 @@ export default function SalesPage() {
   ) {
     return (
       <main className="sales-loading">
+        <div className="loading-logo">
+          KRVÉ
+        </div>
+
         <Loader2
           size={29}
           className="spin"
         />
 
         <span>
-          Loading sales &
-          business impact...
+          Loading Sales &
+          Impact...
         </span>
 
         <style jsx global>{`
@@ -473,6 +617,13 @@ export default function SalesPage() {
             flex-direction: column;
             gap: 14px;
             color: #31578f;
+          }
+
+          .loading-logo {
+            color: #0b2c71;
+            font-size: 23px;
+            font-weight: 900;
+            letter-spacing: 0.16em;
           }
 
           .sales-loading span {
@@ -497,17 +648,72 @@ export default function SalesPage() {
     );
   }
 
-  const {
-    student,
-  } = session.portal;
+  const portal =
+    session.portal as ExtendedPortalData;
 
-  const businessImpact =
-    student.evaluation?.businessImpact ??
+  const student =
+    portal.student as ExtendedStudent;
+
+  const sales =
+    portal.sales || [];
+
+  const salesSummary =
+    portal.salesSummary ||
+    emptySalesSummary;
+
+  const referralCode =
+    student.referralCode ||
+    student.projectCode ||
+    "";
+
+  const referralLink =
+    referralCode
+      ? `${getStoreBase()}/?ref=${encodeURIComponent(
+          referralCode,
+        )}`
+      : "";
+
+  const businessImpactScore =
+    student.evaluation
+      ?.businessImpact ??
     null;
 
-  const impactPercent =
-    impactPercentage(
-      businessImpact,
+  const approvedTasks =
+    Number(
+      portal.summary
+        .approvedTasks || 0,
+    );
+
+  const conversionRate =
+    salesSummary.leads > 0
+      ? Math.round(
+          (salesSummary.orders /
+            salesSummary.leads) *
+            1000,
+        ) / 10
+      : 0;
+
+  const netOrders =
+    Math.max(
+      0,
+      salesSummary.orders -
+        salesSummary.returns -
+        salesSummary.cancellations,
+    );
+
+  const activity =
+    useMemo(
+      () =>
+        [...sales].sort(
+          (a, b) =>
+            new Date(
+              b.recordedAt || 0,
+            ).getTime() -
+            new Date(
+              a.recordedAt || 0,
+            ).getTime(),
+        ),
+      [sales],
     );
 
   return (
@@ -515,9 +721,15 @@ export default function SalesPage() {
       {/* MOBILE HEADER */}
 
       <header className="mobile-header">
-        <strong>
-          KRVÉ
-        </strong>
+        <div>
+          <strong>
+            KRVÉ
+          </strong>
+
+          <span>
+            LIVE PROJECT PORTAL
+          </span>
+        </div>
 
         <button
           type="button"
@@ -526,6 +738,7 @@ export default function SalesPage() {
               true,
             )
           }
+          aria-label="Open navigation"
         >
           <Menu size={21} />
         </button>
@@ -551,8 +764,7 @@ export default function SalesPage() {
             </strong>
 
             <span>
-              LIVE PROJECT
-              PORTAL
+              LIVE PROJECT PORTAL
             </span>
           </div>
 
@@ -569,7 +781,10 @@ export default function SalesPage() {
           </button>
         </div>
 
-        <div className="student-card">
+        <a
+          href="/profile"
+          className="student-mini"
+        >
           <div className="avatar">
             {student.fullName
               .charAt(0)
@@ -586,9 +801,9 @@ export default function SalesPage() {
                 "Live Project Student"}
             </span>
           </div>
-        </div>
+        </a>
 
-        <div className="nav-title">
+        <div className="nav-heading">
           WORKSPACE
         </div>
 
@@ -611,6 +826,11 @@ export default function SalesPage() {
                     "/sales"
                       ? "active"
                       : ""
+                  }
+                  onClick={() =>
+                    setMobileMenuOpen(
+                      false,
+                    )
                   }
                 >
                   <Icon
@@ -675,8 +895,8 @@ export default function SalesPage() {
               href="/dashboard"
               className="back-link"
             >
-              <ChevronLeft
-                size={15}
+              <ArrowLeft
+                size={14}
               />
 
               Dashboard
@@ -692,10 +912,11 @@ export default function SalesPage() {
             </h1>
 
             <span>
-              Track your referral
-              identity, sales
-              contribution and
-              business impact.
+              Live contribution
+              records from KEOS,
+              referral identity and
+              your Business Impact
+              evaluation.
             </span>
           </div>
 
@@ -720,20 +941,55 @@ export default function SalesPage() {
               }
             />
 
-            Refresh
+            {refreshing
+              ? "Refreshing"
+              : "Refresh"}
           </button>
         </header>
 
         {error && (
-          <div className="error-box">
-            {error}
+          <div className="notice error">
+            <AlertCircle
+              size={18}
+            />
+
+            <div>
+              <strong>
+                Unable to refresh
+                impact data
+              </strong>
+
+              <span>
+                {error}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {copied && (
+          <div className="notice success">
+            <CheckCircle2
+              size={18}
+            />
+
+            <div>
+              <strong>
+                Copied
+              </strong>
+
+              <span>
+                Referral information
+                copied to your
+                clipboard.
+              </span>
+            </div>
           </div>
         )}
 
         {/* HERO */}
 
         <section className="impact-hero">
-          <div>
+          <div className="hero-copy">
             <p>
               BUSINESS
               CONTRIBUTION
@@ -746,239 +1002,318 @@ export default function SalesPage() {
             </h2>
 
             <span>
-              Sales, referrals,
-              market activity and
-              practical business
-              contribution can be
-              considered during
-              your final project
-              evaluation.
+              Leads, customer
+              contacts, attributable
+              orders, revenue,
+              research insights and
+              operational outcomes
+              can support your final
+              project evaluation.
             </span>
           </div>
 
-          <div className="impact-score-card">
+          <div className="impact-score">
             <span>
               BUSINESS IMPACT
               SCORE
             </span>
 
-            <strong>
-              {businessImpact ??
-                "—"}
+            <div>
+              <strong>
+                {businessImpactScore ===
+                null
+                  ? "—"
+                  : businessImpactScore}
+              </strong>
+
               <small>
                 /20
               </small>
-            </strong>
+            </div>
 
-            <div className="hero-progress">
+            <div className="score-track">
               <div
                 style={{
-                  width: `${impactPercent}%`,
+                  width: `${
+                    businessImpactScore ===
+                    null
+                      ? 0
+                      : Math.min(
+                          100,
+                          (Number(
+                            businessImpactScore,
+                          ) /
+                            20) *
+                            100,
+                        )
+                  }%`,
                 }}
               />
             </div>
+
+            <p>
+              Set through the final
+              KEOS performance
+              evaluation.
+            </p>
           </div>
         </section>
 
-        {/* SUMMARY CARDS */}
+        {/* KPI CARDS */}
 
-        <section className="summary-grid">
-          <article>
-            <div className="summary-icon blue">
-              <Users size={20} />
-            </div>
+        <section className="metric-grid">
+          <MetricCard
+            icon={
+              <Users size={21} />
+            }
+            label="Attributed Leads"
+            value={String(
+              salesSummary.leads,
+            )}
+            helper={`${salesSummary.customerContacts} customer contacts`}
+            tone="blue"
+          />
 
-            <span>
-              Attributed Leads
-            </span>
-
-            <strong>
-              —
-            </strong>
-
-            <small>
-              Not available yet
-            </small>
-          </article>
-
-          <article>
-            <div className="summary-icon purple">
+          <MetricCard
+            icon={
               <ShoppingBag
-                size={20}
+                size={21}
               />
-            </div>
+            }
+            label="Attributed Orders"
+            value={String(
+              salesSummary.orders,
+            )}
+            helper={`${netOrders} net effective orders`}
+            tone="purple"
+          />
 
-            <span>
-              Attributed Orders
-            </span>
-
-            <strong>
-              —
-            </strong>
-
-            <small>
-              Not available yet
-            </small>
-          </article>
-
-          <article>
-            <div className="summary-icon green">
+          <MetricCard
+            icon={
               <IndianRupee
-                size={20}
+                size={21}
               />
-            </div>
+            }
+            label="Revenue Generated"
+            value={formatMoney(
+              salesSummary.revenue,
+            )}
+            helper={`${salesSummary.entries} attribution record${
+              salesSummary.entries ===
+              1
+                ? ""
+                : "s"
+            }`}
+            tone="green"
+          />
 
-            <span>
-              Revenue Generated
-            </span>
-
-            <strong>
-              —
-            </strong>
-
-            <small>
-              Not available yet
-            </small>
-          </article>
-
-          <article>
-            <div className="summary-icon orange">
-              <Target
-                size={20}
-              />
-            </div>
-
-            <span>
-              Business Impact
-            </span>
-
-            <strong>
-              {businessImpact ??
-                "—"}
-            </strong>
-
-            <small>
-              Out of 20
-            </small>
-          </article>
+          <MetricCard
+            icon={
+              <Target size={21} />
+            }
+            label="Lead Conversion"
+            value={`${conversionRate}%`}
+            helper={`${salesSummary.returns} returns • ${salesSummary.cancellations} cancellations`}
+            tone="orange"
+          />
         </section>
 
-        {/* REFERRAL + IMPACT */}
+        {/* REFERRAL + PERFORMANCE */}
 
         <section className="two-column">
-          <article className="panel referral-panel">
-            <div className="panel-heading">
-              <div>
-                <p>
-                  REFERRAL
-                  IDENTITY
+          <article className="panel">
+            <PanelHeading
+              eyebrow="REFERRAL IDENTITY"
+              title="Your Referral Code"
+              icon={
+                <BriefcaseBusiness
+                  size={22}
+                />
+              }
+            />
+
+            {referralCode ? (
+              <>
+                <div className="referral-code">
+                  <div>
+                    <span>
+                      REFERRAL CODE
+                    </span>
+
+                    <strong>
+                      {referralCode}
+                    </strong>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyText(
+                        referralCode,
+                      )
+                    }
+                  >
+                    <Copy size={15} />
+
+                    Copy
+                  </button>
+                </div>
+
+                <div className="referral-link-box">
+                  <span>
+                    SHAREABLE STORE
+                    LINK
+                  </span>
+
+                  <p>
+                    {referralLink}
+                  </p>
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        copyText(
+                          referralLink,
+                        )
+                      }
+                    >
+                      <Link2
+                        size={15}
+                      />
+
+                      Copy Link
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        shareReferral(
+                          referralLink,
+                        )
+                      }
+                    >
+                      <Share2
+                        size={15}
+                      />
+
+                      Share
+                    </button>
+
+                    <a
+                      href={
+                        referralLink
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink
+                        size={15}
+                      />
+
+                      Open Store
+                    </a>
+                  </div>
+                </div>
+
+                <p className="helper-copy">
+                  Use this code/link only
+                  for KRVE-authorized
+                  project activity.
+                  Attribution records are
+                  reviewed in KEOS.
                 </p>
-
-                <h3>
-                  Your Referral
-                  Code
-                </h3>
-
-                <span>
-                  Use the code
-                  assigned to your
-                  project profile
-                  where instructed
-                  by the KRVÉ team.
-                </span>
-              </div>
-
-              <BriefcaseBusiness
-                size={22}
+              </>
+            ) : (
+              <EmptyState
+                title="Referral code not assigned"
+                text="Once your project referral code is activated in KEOS, it will appear here."
               />
-            </div>
-
-            <div className="referral-code-box">
-              <div>
-                <span>
-                  REFERRAL CODE
-                </span>
-
-                <strong>
-                  {student.referralCode ||
-                    "Not assigned"}
-                </strong>
-              </div>
-
-              <button
-                type="button"
-                onClick={
-                  copyReferralCode
-                }
-                disabled={
-                  !student.referralCode
-                }
-              >
-                <Copy size={16} />
-
-                {copied
-                  ? "Copied"
-                  : "Copy"}
-              </button>
-            </div>
-
-            {!student.referralCode && (
-              <div className="pending-note">
-                Your referral code
-                has not been
-                allocated yet.
-              </div>
             )}
           </article>
 
-          <article className="panel impact-panel">
-            <div className="panel-heading">
+          <article className="panel">
+            <PanelHeading
+              eyebrow="PERFORMANCE"
+              title="Business Impact"
+              icon={
+                <BarChart3
+                  size={22}
+                />
+              }
+            />
+
+            <div className="performance-score">
               <div>
-                <p>
-                  PERFORMANCE
-                </p>
-
-                <h3>
-                  Business Impact
-                </h3>
-
                 <span>
-                  This score forms
-                  part of the
-                  overall
-                  100-point
-                  performance
-                  framework.
+                  CURRENT SCORE
                 </span>
+
+                <strong>
+                  {businessImpactScore ===
+                  null
+                    ? "—"
+                    : businessImpactScore}
+                  <small>
+                    /20
+                  </small>
+                </strong>
               </div>
 
-              <TrendingUp
-                size={22}
+              <div className="large-track">
+                <div
+                  style={{
+                    width: `${
+                      businessImpactScore ===
+                      null
+                        ? 0
+                        : Math.min(
+                            100,
+                            (Number(
+                              businessImpactScore,
+                            ) /
+                              20) *
+                              100,
+                          )
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="performance-facts">
+              <div>
+                <span>
+                  APPROVED TASKS
+                </span>
+
+                <strong>
+                  {approvedTasks}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  PROJECT STATUS
+                </span>
+
+                <strong>
+                  {statusLabel(
+                    student.status,
+                  )}
+                </strong>
+              </div>
+            </div>
+
+            <a
+              href="/performance"
+              className="panel-link"
+            >
+              View Full Performance
+
+              <ChevronRight
+                size={15}
               />
-            </div>
-
-            <div className="impact-score-large">
-              <strong>
-                {businessImpact ??
-                  "—"}
-              </strong>
-
-              <span>
-                /20 points
-              </span>
-            </div>
-
-            <div className="impact-track">
-              <div
-                style={{
-                  width: `${impactPercent}%`,
-                }}
-              />
-            </div>
-
-            <a href="/performance">
-              View Full
-              Performance
             </a>
           </article>
         </section>
@@ -986,254 +1321,281 @@ export default function SalesPage() {
         {/* CONTRIBUTION FRAMEWORK */}
 
         <section className="panel framework-panel">
-          <div className="panel-heading">
-            <div>
-              <p>
-                CONTRIBUTION
-                FRAMEWORK
-              </p>
-
-              <h3>
-                How Business
-                Impact Can Be
-                Demonstrated
-              </h3>
-
-              <span>
-                Actual activity
-                depends on your
-                allocated
-                department and
-                project tasks.
-              </span>
-            </div>
-          </div>
+          <PanelHeading
+            eyebrow="CONTRIBUTION FRAMEWORK"
+            title="How Business Impact Can Be Demonstrated"
+            icon={
+              <Target size={22} />
+            }
+          />
 
           <div className="framework-grid">
-            <article>
-              <div>
-                01
-              </div>
+            <FrameworkItem
+              number="01"
+              title="Lead Generation"
+              text="Identify relevant prospects, customers, partners or business opportunities."
+            />
 
-              <strong>
-                Lead Generation
-              </strong>
+            <FrameworkItem
+              number="02"
+              title="Sales Contribution"
+              text="Support conversion, customer acquisition or attributable sales activity where assigned."
+            />
 
-              <p>
-                Identify relevant
-                prospects,
-                customers,
-                partners or
-                business
-                opportunities.
-              </p>
-            </article>
+            <FrameworkItem
+              number="03"
+              title="Market Insights"
+              text="Produce useful research, competitor intelligence and customer insights."
+            />
 
-            <article>
-              <div>
-                02
-              </div>
+            <FrameworkItem
+              number="04"
+              title="Process Improvement"
+              text="Improve an operational, marketing, finance, HR, design or technology process."
+            />
 
-              <strong>
-                Sales
-                Contribution
-              </strong>
+            <FrameworkItem
+              number="05"
+              title="Campaign Impact"
+              text="Contribute to measurable reach, engagement, traffic, enquiries or conversions."
+            />
 
-              <p>
-                Support conversion,
-                customer
-                acquisition or
-                attributable sales
-                activity where
-                assigned.
-              </p>
-            </article>
-
-            <article>
-              <div>
-                03
-              </div>
-
-              <strong>
-                Market Insights
-              </strong>
-
-              <p>
-                Produce useful
-                research,
-                competitor
-                intelligence and
-                customer insights.
-              </p>
-            </article>
-
-            <article>
-              <div>
-                04
-              </div>
-
-              <strong>
-                Process
-                Improvement
-              </strong>
-
-              <p>
-                Improve an
-                operational,
-                marketing,
-                finance, HR,
-                design or
-                technology
-                process.
-              </p>
-            </article>
-
-            <article>
-              <div>
-                05
-              </div>
-
-              <strong>
-                Campaign Impact
-              </strong>
-
-              <p>
-                Contribute to
-                measurable reach,
-                engagement,
-                traffic,
-                enquiries or
-                conversions.
-              </p>
-            </article>
-
-            <article>
-              <div>
-                06
-              </div>
-
-              <strong>
-                Strategic Output
-              </strong>
-
-              <p>
-                Deliver analysis
-                or recommendations
-                that can be used
-                in real business
-                decisions.
-              </p>
-            </article>
+            <FrameworkItem
+              number="06"
+              title="Strategic Output"
+              text="Deliver analysis or recommendations that can be used in real business decisions."
+            />
           </div>
         </section>
 
-        {/* SALES DATA NOTICE */}
+        {/* LIVE ATTRIBUTION */}
 
-        <section className="panel data-panel">
-          <div className="data-icon">
-            <BarChart3
-              size={24}
+        <section className="panel attribution-panel">
+          <div className="section-top">
+            <PanelHeading
+              eyebrow="LIVE ATTRIBUTION"
+              title="Recorded Contribution Activity"
+              icon={
+                <PackageCheck
+                  size={22}
+                />
+              }
             />
+
+            <span className="live-badge">
+              KEOS SYNC
+            </span>
           </div>
 
-          <div className="data-copy">
+          {activity.length >
+          0 ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      Date
+                    </th>
+
+                    <th>
+                      Order /
+                      Reference
+                    </th>
+
+                    <th>
+                      Leads
+                    </th>
+
+                    <th>
+                      Contacts
+                    </th>
+
+                    <th>
+                      Orders
+                    </th>
+
+                    <th>
+                      Revenue
+                    </th>
+
+                    <th>
+                      Returns
+                    </th>
+
+                    <th>
+                      Cancelled
+                    </th>
+
+                    <th>
+                      Note
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {activity.map(
+                    (sale) => (
+                      <tr
+                        key={
+                          sale.id
+                        }
+                      >
+                        <td>
+                          {formatDate(
+                            sale.recordedAt,
+                          )}
+                        </td>
+
+                        <td>
+                          <strong>
+                            {sale.orderId ||
+                              "Manual activity"}
+                          </strong>
+
+                          <span>
+                            {sale.referralCode ||
+                              referralCode ||
+                              "—"}
+                          </span>
+                        </td>
+
+                        <td>
+                          {
+                            sale.leadCount
+                          }
+                        </td>
+
+                        <td>
+                          {
+                            sale.customerContacts
+                          }
+                        </td>
+
+                        <td>
+                          {
+                            sale.ordersCount
+                          }
+                        </td>
+
+                        <td className="money">
+                          {formatMoney(
+                            sale.revenue,
+                          )}
+                        </td>
+
+                        <td>
+                          {
+                            sale.returnsCount
+                          }
+                        </td>
+
+                        <td>
+                          {
+                            sale.cancellationsCount
+                          }
+                        </td>
+
+                        <td className="note-cell">
+                          {sale.note ||
+                            "—"}
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState
+              title="No contribution records yet"
+              text="When the KRVE team records verified leads, orders or revenue in KEOS, those entries will appear here after refresh."
+            />
+          )}
+        </section>
+
+        {/* SUMMARY */}
+
+        <section className="summary-grid">
+          <article className="panel mini-panel">
+            <RotateCcw
+              size={23}
+            />
+
             <p>
-              SALES TRACKING
+              RETURNS &
+              CANCELLATIONS
             </p>
 
             <h3>
-              Live order and
-              revenue attribution
-              is not connected
-              yet.
+              {salesSummary.returns +
+                salesSummary.cancellations}
             </h3>
 
             <span>
-              Your referral code
-              and Business Impact
-              score are already
-              available. The next
-              backend upgrade can
-              connect customer
-              orders to individual
-              students so this
-              page can show live
-              leads, orders,
-              revenue and
-              conversion
-              contribution.
-            </span>
-          </div>
-        </section>
-
-        {/* PROJECT CONTRIBUTION */}
-
-        <section className="two-column bottom-section">
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p>
-                  PROJECT WORK
-                </p>
-
-                <h3>
-                  Approved Tasks
-                </h3>
-              </div>
-            </div>
-
-            <div className="big-number">
+              {salesSummary.returns}{" "}
+              returns •{" "}
               {
-                approvedTasks
-              }
-            </div>
+                salesSummary.cancellations
+              }{" "}
+              cancellations
+            </span>
+          </article>
 
-            <span className="supporting-text">
-              Approved project
-              tasks can support
-              your overall
-              contribution
-              record.
+          <article className="panel mini-panel">
+            <CheckCircle2
+              size={23}
+            />
+
+            <p>
+              APPROVED PROJECT WORK
+            </p>
+
+            <h3>
+              {approvedTasks}
+            </h3>
+
+            <span>
+              Approved task output
+              supports your overall
+              contribution record.
             </span>
 
-            <a
-              href="/submissions"
-              className="text-link"
-            >
+            <a href="/submissions">
               View Submissions
+
+              <ChevronRight
+                size={14}
+              />
             </a>
           </article>
 
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p>
-                  CURRENT STATUS
-                </p>
+          <article className="panel mini-panel">
+            <BriefcaseBusiness
+              size={23}
+            />
 
-                <h3>
-                  Project Standing
-                </h3>
-              </div>
-            </div>
+            <p>
+              PROJECT STANDING
+            </p>
 
-            <div className="project-status">
+            <h3 className="status-text">
               {statusLabel(
                 student.status,
               )}
-            </div>
+            </h3>
 
-            <span className="supporting-text">
+            <span>
               Department:{" "}
               {student.assignedDepartment ||
-                "Pending"}
+                "Not assigned"}
             </span>
 
-            <a
-              href="/project"
-              className="text-link"
-            >
+            <a href="/project">
               View My Project
+
+              <ChevronRight
+                size={14}
+              />
             </a>
           </article>
         </section>
@@ -1259,6 +1621,10 @@ export default function SalesPage() {
         button {
           font: inherit;
           cursor: pointer;
+        }
+
+        a {
+          color: inherit;
         }
 
         .sales-page {
@@ -1327,7 +1693,7 @@ export default function SalesPage() {
           background: transparent;
         }
 
-        .student-card {
+        .student-mini {
           display: flex;
           align-items: center;
           gap: 11px;
@@ -1337,6 +1703,7 @@ export default function SalesPage() {
             1px solid #e4eaf2;
           border-radius: 13px;
           background: #f8faff;
+          text-decoration: none;
         }
 
         .avatar {
@@ -1352,7 +1719,7 @@ export default function SalesPage() {
           font-weight: 900;
         }
 
-        .student-card strong {
+        .student-mini strong {
           display: block;
           max-width: 155px;
           overflow: hidden;
@@ -1361,14 +1728,14 @@ export default function SalesPage() {
           white-space: nowrap;
         }
 
-        .student-card span {
+        .student-mini span {
           display: block;
           margin-top: 4px;
           color: #8c98a9;
           font-size: 9px;
         }
 
-        .nav-title {
+        .nav-heading {
           padding:
             7px 27px 10px;
           color: #a4adba;
@@ -1455,12 +1822,13 @@ export default function SalesPage() {
         .main-content {
           min-height: 100vh;
           margin-left: 265px;
-          padding: 0 36px 50px;
+          padding:
+            0 36px 55px;
         }
 
         .page-header {
           display: flex;
-          min-height: 125px;
+          min-height: 120px;
           align-items: center;
           justify-content:
             space-between;
@@ -1472,17 +1840,16 @@ export default function SalesPage() {
         .back-link {
           display: inline-flex;
           align-items: center;
-          gap: 4px;
-          margin-bottom: 10px;
-          color: #728096;
+          gap: 5px;
+          margin-bottom: 8px;
+          color: #718096;
           font-size: 9px;
           font-weight: 700;
           text-decoration: none;
         }
 
         .page-header p,
-        .panel-heading p,
-        .data-copy p {
+        .panel-heading p {
           margin: 0;
           color: #2959d1;
           font-size: 8px;
@@ -1491,8 +1858,9 @@ export default function SalesPage() {
         }
 
         .page-header h1 {
-          margin: 6px 0 5px;
-          font-size: 26px;
+          margin:
+            6px 0 5px;
+          font-size: 27px;
         }
 
         .page-header > div > span {
@@ -1515,38 +1883,60 @@ export default function SalesPage() {
           font-weight: 800;
         }
 
-        .error-box {
-          margin-top: 18px;
+        .notice {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          margin-top: 17px;
           padding: 13px;
+          border-radius: 10px;
+        }
+
+        .notice strong {
+          display: block;
+          font-size: 9px;
+        }
+
+        .notice span {
+          display: block;
+          margin-top: 3px;
+          font-size: 9px;
+        }
+
+        .notice.error {
           border:
             1px solid #ffd2d6;
-          border-radius: 10px;
           background: #fff4f5;
           color: #b32d38;
-          font-size: 10px;
+        }
+
+        .notice.success {
+          border:
+            1px solid #c5ead5;
+          background: #f0fbf5;
+          color: #24794d;
         }
 
         .impact-hero {
           display: flex;
-          min-height: 205px;
+          min-height: 245px;
           align-items: center;
           justify-content:
             space-between;
-          gap: 35px;
+          gap: 30px;
           margin-top: 26px;
-          padding: 36px 39px;
+          padding: 38px 42px;
           border-radius: 20px;
           background:
             radial-gradient(
-              circle at 88%
-                15%,
+              circle at 88% 18%,
               rgba(
                 91,
                 137,
                 255,
-                0.5
+                0.48
               ),
-              transparent 25%
+              transparent 27%
             ),
             linear-gradient(
               135deg,
@@ -1556,11 +1946,11 @@ export default function SalesPage() {
           color: #fff;
         }
 
-        .impact-hero > div:first-child {
-          max-width: 760px;
+        .hero-copy {
+          max-width: 780px;
         }
 
-        .impact-hero p {
+        .hero-copy p {
           margin: 0;
           color: #9fbafd;
           font-size: 8px;
@@ -1568,26 +1958,29 @@ export default function SalesPage() {
           letter-spacing: 0.17em;
         }
 
-        .impact-hero h2 {
-          margin: 11px 0 8px;
-          font-size: 30px;
-          line-height: 1.2;
+        .hero-copy h2 {
+          max-width: 750px;
+          margin:
+            14px 0 12px;
+          font-size: 31px;
+          line-height: 1.25;
         }
 
-        .impact-hero > div:first-child > span {
+        .hero-copy span {
           color:
             rgba(
               255,
               255,
               255,
-              0.63
+              0.68
             );
           font-size: 10px;
           line-height: 1.7;
         }
 
-        .impact-score-card {
-          min-width: 235px;
+        .impact-score {
+          width: 250px;
+          flex: 0 0 250px;
           padding: 22px;
           border:
             1px solid
@@ -1603,31 +1996,36 @@ export default function SalesPage() {
               255,
               255,
               255,
-              0.07
+              0.08
             );
         }
 
-        .impact-score-card > span {
-          color: #a9bee9;
+        .impact-score > span {
+          color: #afc1e9;
           font-size: 7px;
           font-weight: 900;
+          letter-spacing: 0.08em;
         }
 
-        .impact-score-card > strong {
-          display: block;
-          margin-top: 8px;
-          font-size: 34px;
+        .impact-score > div:nth-child(2) {
+          display: flex;
+          align-items: baseline;
+          gap: 4px;
+          margin-top: 17px;
         }
 
-        .impact-score-card small {
-          color: #9cb4e5;
+        .impact-score strong {
+          font-size: 39px;
+        }
+
+        .impact-score small {
+          color: #b8c8e9;
           font-size: 12px;
         }
 
-        .hero-progress,
-        .impact-track {
-          height: 7px;
-          margin-top: 14px;
+        .score-track,
+        .large-track {
+          height: 8px;
           overflow: hidden;
           border-radius: 50px;
           background:
@@ -1639,14 +2037,32 @@ export default function SalesPage() {
             );
         }
 
-        .hero-progress div,
-        .impact-track div {
-          height: 100%;
-          border-radius: inherit;
-          background: #89a8ff;
+        .score-track {
+          margin-top: 15px;
         }
 
-        .summary-grid {
+        .score-track div,
+        .large-track div {
+          height: 100%;
+          border-radius: inherit;
+          background: #7fa3ff;
+        }
+
+        .impact-score p {
+          margin:
+            11px 0 0;
+          color:
+            rgba(
+              255,
+              255,
+              255,
+              0.52
+            );
+          font-size: 8px;
+          line-height: 1.5;
+        }
+
+        .metric-grid {
           display: grid;
           grid-template-columns:
             repeat(4, 1fr);
@@ -1654,60 +2070,61 @@ export default function SalesPage() {
           margin-top: 17px;
         }
 
-        .summary-grid article {
-          min-height: 140px;
-          padding: 20px;
+        .metric-card {
+          min-height: 155px;
+          padding: 21px;
           border:
             1px solid #dfe5ed;
-          border-radius: 14px;
+          border-radius: 15px;
           background: #fff;
         }
 
-        .summary-icon {
+        .metric-icon {
           display: grid;
-          width: 40px;
-          height: 40px;
+          width: 42px;
+          height: 42px;
           place-items: center;
           border-radius: 11px;
         }
 
-        .summary-icon.blue {
+        .metric-icon.blue {
           background: #edf3ff;
           color: #2d60dd;
         }
 
-        .summary-icon.purple {
+        .metric-icon.purple {
           background: #f3efff;
-          color: #6e4bd6;
+          color: #704bd6;
         }
 
-        .summary-icon.green {
-          background: #ebf8f1;
+        .metric-icon.green {
+          background: #eaf8f0;
           color: #258855;
         }
 
-        .summary-icon.orange {
+        .metric-icon.orange {
           background: #fff3e6;
-          color: #d87b1d;
+          color: #d87a1d;
         }
 
-        .summary-grid article > span {
+        .metric-card > span {
           display: block;
-          margin-top: 14px;
-          color: #818d9f;
+          margin-top: 15px;
+          color: #8290a4;
           font-size: 9px;
         }
 
-        .summary-grid article > strong {
+        .metric-card strong {
           display: block;
-          margin-top: 4px;
-          font-size: 25px;
+          margin-top: 8px;
+          color: #26364d;
+          font-size: 24px;
         }
 
-        .summary-grid article small {
+        .metric-card small {
           display: block;
-          margin-top: 4px;
-          color: #a0a9b7;
+          margin-top: 6px;
+          color: #9aa5b4;
           font-size: 8px;
         }
 
@@ -1724,14 +2141,26 @@ export default function SalesPage() {
             1px solid #dfe5ed;
           border-radius: 16px;
           background: #fff;
+          box-shadow:
+            0 5px 20px
+            rgba(
+              17,
+              44,
+              85,
+              0.035
+            );
         }
 
-        .referral-panel,
-        .impact-panel,
+        .two-column .panel,
         .framework-panel,
-        .data-panel,
-        .bottom-section .panel {
+        .attribution-panel,
+        .mini-panel {
           padding: 24px;
+        }
+
+        .framework-panel,
+        .attribution-panel {
+          margin-top: 17px;
         }
 
         .panel-heading {
@@ -1744,211 +2173,371 @@ export default function SalesPage() {
         }
 
         .panel-heading h3 {
-          margin: 7px 0 0;
+          margin:
+            7px 0 0;
           font-size: 17px;
         }
 
-        .panel-heading > div > span {
-          display: block;
-          margin-top: 6px;
-          color: #8793a4;
-          font-size: 9px;
-          line-height: 1.6;
+        .panel-heading > svg {
+          color: #3d61a3;
         }
 
-        .referral-code-box {
+        .referral-code {
           display: flex;
           align-items: center;
           justify-content:
             space-between;
           gap: 15px;
-          margin-top: 22px;
-          padding: 17px;
+          margin-top: 21px;
+          padding: 18px;
           border:
-            1px dashed #b8c7e7;
-          border-radius: 11px;
-          background: #f6f9ff;
+            1px dashed #bcd0ef;
+          border-radius: 12px;
+          background: #f7faff;
         }
 
-        .referral-code-box span {
+        .referral-code span,
+        .referral-link-box > span,
+        .performance-score span,
+        .performance-facts span,
+        .mini-panel p {
           display: block;
-          color: #8a97aa;
+          color: #8b98aa;
           font-size: 7px;
           font-weight: 900;
+          letter-spacing: 0.07em;
         }
 
-        .referral-code-box strong {
+        .referral-code strong {
           display: block;
-          margin-top: 6px;
-          color: #123f9f;
+          margin-top: 5px;
+          color: #2250ae;
           font-size: 17px;
-          letter-spacing: 0.06em;
+          word-break:
+            break-all;
         }
 
-        .referral-code-box button {
-          display: flex;
-          height: 38px;
-          align-items: center;
-          gap: 7px;
-          padding: 0 13px;
-          border: 0;
-          border-radius: 9px;
-          background: #123e9c;
-          color: #fff;
-          font-size: 9px;
-          font-weight: 800;
-        }
-
-        .referral-code-box button:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .pending-note {
-          margin-top: 12px;
-          color: #9b7a46;
-          font-size: 9px;
-        }
-
-        .impact-score-large {
-          display: flex;
-          align-items: flex-end;
-          gap: 6px;
-          margin-top: 22px;
-        }
-
-        .impact-score-large strong {
-          color: #2057d0;
-          font-size: 44px;
-        }
-
-        .impact-score-large span {
-          padding-bottom: 7px;
-          color: #8a96a8;
-          font-size: 9px;
-        }
-
-        .impact-panel
-          .impact-track {
-          background: #edf1f6;
-        }
-
-        .impact-panel
-          .impact-track
-          div {
-          background:
-            linear-gradient(
-              90deg,
-              #2054d0,
-              #7197ff
-            );
-        }
-
-        .impact-panel > a,
-        .text-link {
+        .referral-code button,
+        .referral-link-box button,
+        .referral-link-box a {
           display: inline-flex;
-          margin-top: 17px;
-          color: #2658ce;
-          font-size: 9px;
+          min-height: 38px;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 0 11px;
+          border:
+            1px solid #dce3ec;
+          border-radius: 8px;
+          background: #fff;
+          color: #4e6385;
+          font-size: 8px;
           font-weight: 800;
           text-decoration: none;
         }
 
-        .framework-panel {
-          margin-top: 17px;
+        .referral-code button {
+          border: 0;
+          background: #163f97;
+          color: #fff;
+        }
+
+        .referral-link-box {
+          margin-top: 14px;
+          padding: 15px;
+          border-radius: 11px;
+          background: #f8fafc;
+        }
+
+        .referral-link-box p {
+          margin:
+            6px 0 11px;
+          overflow-wrap:
+            anywhere;
+          color: #43536c;
+          font-size: 9px;
+          line-height: 1.6;
+        }
+
+        .referral-link-box > div {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+        }
+
+        .helper-copy {
+          margin:
+            13px 0 0;
+          color: #8a96a7;
+          font-size: 8px;
+          line-height: 1.6;
+        }
+
+        .performance-score {
+          margin-top: 24px;
+        }
+
+        .performance-score strong {
+          display: block;
+          margin-top: 5px;
+          color: #2458cd;
+          font-size: 30px;
+        }
+
+        .performance-score small {
+          margin-left: 4px;
+          color: #8c9aaf;
+          font-size: 11px;
+        }
+
+        .large-track {
+          margin-top: 15px;
+          background: #e9edf4;
+        }
+
+        .large-track div {
+          background:
+            linear-gradient(
+              90deg,
+              #1c54cf,
+              #6c92fa
+            );
+        }
+
+        .performance-facts {
+          display: grid;
+          grid-template-columns:
+            1fr 1fr;
+          gap: 10px;
+          margin-top: 18px;
+        }
+
+        .performance-facts > div {
+          padding: 13px;
+          border-radius: 9px;
+          background: #f7f9fc;
+        }
+
+        .performance-facts strong {
+          display: block;
+          margin-top: 5px;
+          color: #32445f;
+          font-size: 12px;
+        }
+
+        .panel-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          margin-top: 18px;
+          color: #2458cd;
+          font-size: 9px;
+          font-weight: 800;
+          text-decoration: none;
         }
 
         .framework-grid {
           display: grid;
           grid-template-columns:
             repeat(3, 1fr);
-          gap: 13px;
+          gap: 12px;
           margin-top: 21px;
         }
 
-        .framework-grid article {
-          min-height: 180px;
+        .framework-item {
+          min-height: 165px;
           padding: 18px;
           border:
-            1px solid #e5eaf1;
+            1px solid #e2e7ef;
           border-radius: 12px;
           background: #fafcff;
         }
 
-        .framework-grid article > div {
-          color: #2a5bd2;
-          font-size: 9px;
+        .framework-item > span {
+          color: #2858ce;
+          font-size: 8px;
           font-weight: 900;
         }
 
-        .framework-grid strong {
-          display: block;
-          margin-top: 18px;
+        .framework-item h4 {
+          margin:
+            17px 0 7px;
+          color: #2a374c;
           font-size: 12px;
         }
 
-        .framework-grid p {
-          margin: 7px 0 0;
-          color: #778397;
+        .framework-item p {
+          margin: 0;
+          color: #79869a;
           font-size: 9px;
-          line-height: 1.7;
+          line-height: 1.65;
         }
 
-        .data-panel {
+        .section-top {
           display: flex;
-          align-items: flex-start;
-          gap: 16px;
-          margin-top: 17px;
-          border-color: #d7e4ff;
-          background: #f7faff;
+          align-items:
+            flex-start;
+          justify-content:
+            space-between;
+          gap: 15px;
         }
 
-        .data-icon {
-          display: grid;
-          width: 48px;
-          height: 48px;
-          flex: 0 0 48px;
-          place-items: center;
-          border-radius: 12px;
-          background: #e9f0ff;
-          color: #2b5bd2;
-        }
-
-        .data-copy h3 {
-          margin: 7px 0 7px;
-          font-size: 16px;
-        }
-
-        .data-copy span {
-          color: #6f7e94;
-          font-size: 9px;
-          line-height: 1.7;
-        }
-
-        .bottom-section {
-          margin-top: 17px;
-        }
-
-        .big-number {
-          margin-top: 20px;
-          color: #2057d0;
-          font-size: 44px;
+        .live-badge {
+          padding:
+            6px 9px;
+          border-radius: 40px;
+          background: #eaf8f0;
+          color: #247f51;
+          font-size: 7px;
           font-weight: 900;
         }
 
-        .supporting-text {
-          display: block;
-          margin-top: 7px;
-          color: #7f8b9d;
+        .table-wrap {
+          margin-top: 21px;
+          overflow-x: auto;
+          border:
+            1px solid #e5e9ef;
+          border-radius: 12px;
+        }
+
+        table {
+          width: 100%;
+          min-width: 1000px;
+          border-collapse:
+            collapse;
           font-size: 9px;
+        }
+
+        th {
+          padding:
+            12px 13px;
+          background: #f7f9fc;
+          color: #78869b;
+          font-size: 7px;
+          text-align: left;
+          text-transform:
+            uppercase;
+          letter-spacing:
+            0.06em;
+        }
+
+        td {
+          padding:
+            13px;
+          border-top:
+            1px solid #edf0f4;
+          color: #59687e;
+          vertical-align: top;
+        }
+
+        td strong {
+          display: block;
+          color: #334158;
+          font-size: 9px;
+        }
+
+        td span {
+          display: block;
+          margin-top: 3px;
+          color: #929dad;
+          font-size: 7px;
+        }
+
+        td.money {
+          color: #227c4c;
+          font-weight: 900;
+        }
+
+        .note-cell {
+          max-width: 250px;
+          line-height: 1.5;
+        }
+
+        .empty-state {
+          display: flex;
+          min-height: 170px;
+          align-items: center;
+          justify-content: center;
+          flex-direction: column;
+          margin-top: 20px;
+          padding: 22px;
+          border:
+            1px dashed #d5dce6;
+          border-radius: 12px;
+          background: #fafbfc;
+          text-align: center;
+        }
+
+        .empty-state > div {
+          display: grid;
+          width: 42px;
+          height: 42px;
+          place-items: center;
+          border-radius: 11px;
+          background: #edf3ff;
+          color: #4c6fae;
+        }
+
+        .empty-state strong {
+          display: block;
+          margin-top: 12px;
+          font-size: 11px;
+        }
+
+        .empty-state p {
+          max-width: 450px;
+          margin:
+            6px 0 0;
+          color: #8995a6;
+          font-size: 8px;
           line-height: 1.6;
         }
 
-        .project-status {
-          margin-top: 20px;
-          color: #1c6f49;
+        .summary-grid {
+          display: grid;
+          grid-template-columns:
+            repeat(3, 1fr);
+          gap: 15px;
+          margin-top: 17px;
+        }
+
+        .mini-panel > svg {
+          color: #2e5dbe;
+        }
+
+        .mini-panel p {
+          margin:
+            16px 0 0;
+          color: #2b5acf;
+        }
+
+        .mini-panel h3 {
+          margin:
+            8px 0 7px;
+          color: #2559d0;
+          font-size: 30px;
+        }
+
+        .mini-panel h3.status-text {
+          color: #23804f;
           font-size: 24px;
-          font-weight: 900;
+        }
+
+        .mini-panel > span {
+          color: #8591a3;
+          font-size: 8px;
+          line-height: 1.55;
+        }
+
+        .mini-panel a {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          margin-top: 14px;
+          color: #2458cd;
+          font-size: 8px;
+          font-weight: 800;
+          text-decoration: none;
         }
 
         .mobile-header,
@@ -1970,9 +2559,9 @@ export default function SalesPage() {
         }
 
         @media (
-          max-width: 1080px
+          max-width: 1120px
         ) {
-          .summary-grid {
+          .metric-grid {
             grid-template-columns:
               1fr 1fr;
           }
@@ -1980,6 +2569,16 @@ export default function SalesPage() {
           .framework-grid {
             grid-template-columns:
               1fr 1fr;
+          }
+        }
+
+        @media (
+          max-width: 900px
+        ) {
+          .two-column,
+          .summary-grid {
+            grid-template-columns:
+              1fr;
           }
         }
 
@@ -2003,13 +2602,24 @@ export default function SalesPage() {
                 255,
                 255,
                 255,
-                0.95
+                0.96
               );
           }
 
           .mobile-header strong {
+            display: block;
             color: #0a2c6e;
+            font-size: 16px;
             letter-spacing: 0.1em;
+          }
+
+          .mobile-header span {
+            display: block;
+            margin-top: 2px;
+            color: #98a3b3;
+            font-size: 6px;
+            font-weight: 800;
+            letter-spacing: 0.13em;
           }
 
           .mobile-header button {
@@ -2029,7 +2639,8 @@ export default function SalesPage() {
             transform:
               translateX(-100%);
             transition:
-              transform 0.25s ease;
+              transform
+              0.25s ease;
           }
 
           .sidebar.open {
@@ -2065,52 +2676,179 @@ export default function SalesPage() {
               0 17px 40px;
           }
 
-          .impact-hero,
-          .two-column {
-            align-items: flex-start;
-            grid-template-columns:
-              1fr;
-          }
-
           .impact-hero {
-            flex-direction: column;
+            align-items:
+              stretch;
+            flex-direction:
+              column;
           }
 
-          .impact-score-card {
+          .impact-score {
             width: 100%;
-            min-width: 0;
+            flex-basis: auto;
           }
         }
 
         @media (
           max-width: 560px
         ) {
-          .summary-grid,
+          .metric-grid,
           .framework-grid {
             grid-template-columns:
               1fr;
           }
 
-          .impact-hero,
-          .referral-panel,
-          .impact-panel,
-          .framework-panel,
-          .data-panel,
-          .bottom-section .panel {
-            padding: 20px;
+          .impact-hero {
+            padding:
+              28px 22px;
           }
 
-          .referral-code-box {
-            align-items:
-              flex-start;
-            flex-direction: column;
+          .hero-copy h2 {
+            font-size: 24px;
           }
 
-          .data-panel {
-            flex-direction: column;
+          .performance-facts {
+            grid-template-columns:
+              1fr;
+          }
+
+          .page-header > div > span {
+            display: block;
+            max-width: 260px;
+            line-height: 1.5;
+          }
+
+          .refresh-button {
+            width: 41px;
+            padding: 0;
+            justify-content:
+              center;
+            font-size: 0;
           }
         }
       `}</style>
     </main>
+  );
+}
+
+/* =========================================================
+   COMPONENTS
+========================================================= */
+
+function PanelHeading({
+  eyebrow,
+  title,
+  icon,
+}: {
+  eyebrow: string;
+  title: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="panel-heading">
+      <div>
+        <p>
+          {eyebrow}
+        </p>
+
+        <h3>
+          {title}
+        </h3>
+      </div>
+
+      {icon}
+    </div>
+  );
+}
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  helper,
+  tone,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  helper: string;
+  tone:
+    | "blue"
+    | "purple"
+    | "green"
+    | "orange";
+}) {
+  return (
+    <article className="metric-card">
+      <div
+        className={`metric-icon ${tone}`}
+      >
+        {icon}
+      </div>
+
+      <span>
+        {label}
+      </span>
+
+      <strong>
+        {value}
+      </strong>
+
+      <small>
+        {helper}
+      </small>
+    </article>
+  );
+}
+
+function FrameworkItem({
+  number,
+  title,
+  text,
+}: {
+  number: string;
+  title: string;
+  text: string;
+}) {
+  return (
+    <article className="framework-item">
+      <span>
+        {number}
+      </span>
+
+      <h4>
+        {title}
+      </h4>
+
+      <p>
+        {text}
+      </p>
+    </article>
+  );
+}
+
+function EmptyState({
+  title,
+  text,
+}: {
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="empty-state">
+      <div>
+        <PackageCheck
+          size={20}
+        />
+      </div>
+
+      <strong>
+        {title}
+      </strong>
+
+      <p>
+        {text}
+      </p>
+    </div>
   );
 }
