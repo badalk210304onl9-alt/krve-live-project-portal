@@ -287,7 +287,7 @@ function getStoreBase() {
   const value =
     process.env
       .NEXT_PUBLIC_KRVE_STORE_URL ||
-    "https://krvefashionstudio.in";
+    "https://krve-fashion.vercel.app";
 
   return value.replace(
     /\/+$/,
