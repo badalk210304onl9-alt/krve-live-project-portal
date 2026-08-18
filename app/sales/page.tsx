@@ -2,7 +2,6 @@
 
 import {
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -702,18 +701,14 @@ export default function SalesImpactPage() {
     );
 
   const activity =
-    useMemo(
-      () =>
-        [...sales].sort(
-          (a, b) =>
-            new Date(
-              b.recordedAt || 0,
-            ).getTime() -
-            new Date(
-              a.recordedAt || 0,
-            ).getTime(),
-        ),
-      [sales],
+    [...sales].sort(
+      (a, b) =>
+        new Date(
+          b.recordedAt || 0,
+        ).getTime() -
+        new Date(
+          a.recordedAt || 0,
+        ).getTime(),
     );
 
   return (
